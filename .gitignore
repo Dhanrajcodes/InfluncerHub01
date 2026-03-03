@@ -83,7 +83,10 @@ dist
 
 # Gatsby files
 .cache/
-public/
+/public/
+# Keep CRA static assets tracked for Vercel builds
+!/frontend/public/
+!/frontend/public/**
 
 # vuepress build output
 .vuepress/dist
