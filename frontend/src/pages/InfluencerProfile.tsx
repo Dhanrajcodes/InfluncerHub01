@@ -317,7 +317,15 @@ const InfluencerProfile: React.FC = () => {
         body: JSON.stringify(profileData),
       });
 
-      const responseBody = await res.json().catch(() => null);
+      const contentType = res.headers.get("content-type") || "";
+      let responseBody: any = null;
+      if (contentType.includes("application/json")) {
+        responseBody = await res.json().catch(() => null);
+      } else {
+        const text = await res.text().catch(() => "");
+        responseBody = text ? { msg: text } : null;
+      }
+
       if (!res.ok) {
         const validationError = responseBody?.errors
           ? Object.values(responseBody.errors)[0] as { message?: string }

@@ -4,73 +4,82 @@ import Category from "../models/Category.js";
 
 // Create or Update influencer profile
 export const createOrUpdateProfile = async (req, res) => {
-  const {
-    handle,
-    bio,
-    categories,
-    location,
-    followerCount,
-    pricing,
-    tags,
-    avatarUrl,
-    portfolio,
-    instagram,
-    youtube,
-    tiktok,
-    twitter,
-    other, // Add the missing 'other' social link field
-    averageEngagementRate,
-  } = req.body;
-
-  const profileFields = { user: req.user.id };
-  const existingProfile = await InfluencerProfile.findOne({ user: req.user.id });
-
-  if (!existingProfile && (!handle || !String(handle).trim())) {
-    return res.status(400).json({ msg: "Handle is required" });
-  }
-
-  if (handle !== undefined) profileFields.handle = String(handle).trim();
-  if (bio !== undefined) profileFields.bio = bio;
-  if (location !== undefined) profileFields.location = location;
-  if (followerCount !== undefined) profileFields.followerCount = followerCount;
-  if (pricing !== undefined) profileFields.pricing = pricing;
-  if (tags !== undefined) profileFields.tags = tags;
-  if (portfolio !== undefined) profileFields.portfolio = portfolio;
-  if (averageEngagementRate !== undefined) profileFields.averageEngagementRate = averageEngagementRate;
-
-  // ✅ Always include avatarUrl (empty string if removed)
-  profileFields.avatarUrl = avatarUrl || "";
-
-  // ✅ Merge socialLinks safely (don't overwrite missing ones)
-  const existingLinks = existingProfile?.socialLinks || {};
-
-  profileFields.socialLinks = {
-    instagram: instagram !== undefined ? instagram : existingLinks.instagram || "",
-    youtube: youtube !== undefined ? youtube : existingLinks.youtube || "",
-    tiktok: tiktok !== undefined ? tiktok : existingLinks.tiktok || "",
-    twitter: twitter !== undefined ? twitter : existingLinks.twitter || "",
-    other: other !== undefined ? other : existingLinks.other || "", // Add the missing 'other' field handling
-  };
-
-  if (categories) {
-    const catIds = [];
-    for (let c of categories) {
-      let cat =
-        (await Category.findOne({ name: c })) ||
-        (await Category.findById(c).catch(() => null));
-      if (!cat) {
-        cat = await Category.create({
-          name: c,
-          slug: c.toLowerCase().replace(/\s+/g, "-"),
-        });
-      }
-      catIds.push(cat._id);
-    }
-    profileFields.categories = catIds;
-  }
-
   try {
-    let profile = await InfluencerProfile.findOneAndUpdate(
+    const {
+      handle,
+      bio,
+      categories,
+      location,
+      followerCount,
+      pricing,
+      tags,
+      avatarUrl,
+      portfolio,
+      instagram,
+      youtube,
+      tiktok,
+      twitter,
+      other,
+      averageEngagementRate,
+    } = req.body;
+
+    const profileFields = { user: req.user.id };
+    const existingProfile = await InfluencerProfile.findOne({ user: req.user.id });
+
+    const normalizedHandle = typeof handle === "string" ? handle.trim() : "";
+    if (!existingProfile && !normalizedHandle) {
+      return res.status(400).json({ msg: "Handle is required" });
+    }
+
+    if (handle !== undefined) profileFields.handle = normalizedHandle;
+    if (bio !== undefined) profileFields.bio = bio;
+    if (location !== undefined) profileFields.location = location;
+    if (followerCount !== undefined) profileFields.followerCount = followerCount;
+    if (pricing !== undefined) profileFields.pricing = pricing;
+    if (tags !== undefined) profileFields.tags = tags;
+    if (portfolio !== undefined) profileFields.portfolio = portfolio;
+    if (averageEngagementRate !== undefined) profileFields.averageEngagementRate = averageEngagementRate;
+
+    profileFields.avatarUrl = avatarUrl || "";
+
+    const existingLinks = existingProfile?.socialLinks || {};
+    profileFields.socialLinks = {
+      instagram: instagram !== undefined ? instagram : existingLinks.instagram || "",
+      youtube: youtube !== undefined ? youtube : existingLinks.youtube || "",
+      tiktok: tiktok !== undefined ? tiktok : existingLinks.tiktok || "",
+      twitter: twitter !== undefined ? twitter : existingLinks.twitter || "",
+      other: other !== undefined ? other : existingLinks.other || "",
+    };
+
+    if (Array.isArray(categories)) {
+      const catIds = [];
+      for (const rawCategory of categories) {
+        const value = String(rawCategory || "").trim();
+        if (!value) continue;
+
+        let cat = await Category.findOne({ name: value });
+        if (!cat && /^[a-fA-F0-9]{24}$/.test(value)) {
+          cat = await Category.findById(value).catch(() => null);
+        }
+
+        if (!cat) {
+          try {
+            cat = await Category.create({ name: value });
+          } catch (categoryErr) {
+            if (categoryErr?.code === 11000) {
+              cat = await Category.findOne({ name: value });
+            } else {
+              throw categoryErr;
+            }
+          }
+        }
+
+        if (cat) catIds.push(cat._id);
+      }
+      profileFields.categories = catIds;
+    }
+
+    const profile = await InfluencerProfile.findOneAndUpdate(
       { user: req.user.id },
       { $set: profileFields },
       { new: true, upsert: true, setDefaultsOnInsert: true }
@@ -78,19 +87,24 @@ export const createOrUpdateProfile = async (req, res) => {
       .populate("user", ["name", "avatar"])
       .populate("categories", "name");
 
-    res.json(profile);
+    return res.json(profile);
   } catch (err) {
-    console.error(err.message);
-    if (err.name === "ValidationError") {
-      return res.status(400).json({ 
-        msg: "Validation error", 
-        errors: err.errors 
+    console.error("createOrUpdateProfile error:", err);
+
+    if (err?.code === 11000 && err?.keyPattern?.handle) {
+      return res.status(409).json({ msg: "Handle already taken. Please choose another handle." });
+    }
+
+    if (err?.name === "ValidationError") {
+      return res.status(400).json({
+        msg: "Validation error",
+        errors: err.errors,
       });
     }
-    res.status(500).send("Server Error");
+
+    return res.status(500).json({ msg: "Server Error" });
   }
 };
-
 // Get current user's influencer profile
 export const getMyProfile = async (req, res) => {
   try {
@@ -218,3 +232,4 @@ export default {
   searchInfluencers,
   getAllInfluencers,
 };
+
