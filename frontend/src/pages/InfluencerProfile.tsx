@@ -31,6 +31,7 @@ interface ProfileFormValues {
 const InfluencerProfile: React.FC = () => {
   const { user, token } = useAuth();
   const navigate = useNavigate();
+  const apiBaseUrl = process.env.REACT_APP_API_URL || process.env.VITE_API_URL || "http://localhost:5000";
   const {
     register,
     handleSubmit,
@@ -93,7 +94,7 @@ const InfluencerProfile: React.FC = () => {
       const formData = new FormData();
       formData.append("image", file);
 
-      const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload`, {
+      const res = await fetch(`${apiBaseUrl}/api/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -116,7 +117,7 @@ const InfluencerProfile: React.FC = () => {
       // Reset the file input so the same file can be uploaded again if needed
       e.target.value = '';
     }
-  }, [token, setValue]);
+  }, [apiBaseUrl, token, setValue]);
 
   const handlePortfolioUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -130,7 +131,7 @@ const InfluencerProfile: React.FC = () => {
         const formData = new FormData();
         formData.append("image", files[i]);
 
-        const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload`, {
+        const res = await fetch(`${apiBaseUrl}/api/upload`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
           body: formData,
@@ -156,7 +157,7 @@ const InfluencerProfile: React.FC = () => {
       // Reset the file input so the same file can be uploaded again if needed
       e.target.value = '';
     }
-  }, [token, getValues, setValue]);
+  }, [apiBaseUrl, token, getValues, setValue]);
 
   const removeImage = useCallback((index: number) => {
     const currentPortfolio = getValues("portfolio") || [];
@@ -183,7 +184,7 @@ const InfluencerProfile: React.FC = () => {
   }, [initialProfileData, reset]);
 
   // Format currency
-  const currencySymbol = () => "₹";
+  const currencySymbol = () => "INR ";
 
   const formatCurrency = (value?: number) => {
     if (value === undefined || value === null) return "N/A";
@@ -191,6 +192,34 @@ const InfluencerProfile: React.FC = () => {
     const formatted = Number.isInteger(v) ? v.toString() : v.toFixed(2);
     return `${currencySymbol()}${formatted}`;
   };
+
+  const mapApiProfileToForm = useCallback((data: any): ProfileFormValues => {
+    return {
+      handle: data.handle || "",
+      bio: data.bio || "",
+      categories: data.categories?.map((cat: any) => {
+        if (typeof cat === "object" && cat.name) return cat.name;
+        if (typeof cat === "object" && cat._id) return cat._id;
+        return cat;
+      }) || [],
+      followerCount: data.followerCount ?? 0,
+      instagram: data.socialLinks?.instagram || "",
+      youtube: data.socialLinks?.youtube || "",
+      twitter: data.socialLinks?.twitter || "",
+      tiktok: data.socialLinks?.tiktok || "",
+      other: data.socialLinks?.other || "",
+      location: data.location || "",
+      avatarUrl: data.avatarUrl || "",
+      portfolio: data.portfolio || [],
+      tags: data.tags || [],
+      averageEngagementRate: data.averageEngagementRate ?? 0,
+      pricing: {
+        post: data.pricing?.post,
+        reel: data.pricing?.reel,
+        story: data.pricing?.story,
+      },
+    };
+  }, []);
 
   // Fetch current influencer profile
   useEffect(() => {
@@ -200,56 +229,33 @@ const InfluencerProfile: React.FC = () => {
         return;
       }
       try {
-        const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/influencers/me`, {
+        const res = await fetch(`${apiBaseUrl}/api/influencers/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (res.status === 404) {
+
+        const responseBody = await res.json().catch(() => null);
+        const missingProfile =
+          res.status === 404 ||
+          (res.status === 400 &&
+            typeof responseBody?.msg === "string" &&
+            responseBody.msg.toLowerCase().includes("no profile"));
+
+        if (missingProfile) {
           setIsEditMode(true);
           setProfileExists(false);
           return;
         }
-        if (!res.ok) throw new Error("Failed to load profile");
+        if (!res.ok) {
+          throw new Error(responseBody?.msg || responseBody?.message || "Failed to load profile");
+        }
 
-        const data = await res.json();
-        // backend returns fields as in model; map for form defaults
-        const profileData: ProfileFormValues = {
-          handle: data.handle || "",
-          bio: data.bio || "",
-          categories: data.categories?.map((cat: any) => {
-            // If cat is an object with a name, return the name
-            if (typeof cat === 'object' && cat.name) {
-              return cat.name;
-            }
-            // If cat is an object with _id, return the _id
-            if (typeof cat === 'object' && cat._id) {
-              return cat._id;
-            }
-            // Otherwise, return cat as is (assuming it's a string)
-            return cat;
-          }) || [],
-          followerCount: data.followerCount || 0,
-          instagram: data.socialLinks?.instagram || "",
-          youtube: data.socialLinks?.youtube || "",
-          twitter: data.socialLinks?.twitter || "",
-          tiktok: data.socialLinks?.tiktok || "",
-          other: data.socialLinks?.other || "",
-          location: data.location || "",
-          avatarUrl: data.avatarUrl || "",
-          portfolio: data.portfolio || [],
-          tags: data.tags || [],
-          averageEngagementRate: data.averageEngagementRate || 0,
-          pricing: {
-            post: data.pricing?.post,
-            reel: data.pricing?.reel,
-            story: data.pricing?.story,
-          },
-        };
+        const profileData = mapApiProfileToForm(responseBody);
 
         reset(profileData);
         setInitialProfileData(profileData);
         setIsEditMode(false);
         setProfileExists(true);
-        setAvatarPreview(data.avatarUrl || null);
+        setAvatarPreview(responseBody?.avatarUrl || null);
       } catch (err: any) {
         toast.error(err.message || "Could not fetch profile");
       }
@@ -258,20 +264,47 @@ const InfluencerProfile: React.FC = () => {
     if (user?.role === 'influencer') {
       fetchProfile();
     }
-  }, [token, reset, navigate, user?.role]);
+  }, [apiBaseUrl, mapApiProfileToForm, token, reset, navigate, user?.role]);
 
   // Handle form submission
   const onSubmit = useCallback(async (data: ProfileFormValues) => {
     try {
-      // Send social links as individual fields (not nested) to match backend expectations
-      const profileData = {
-        ...data,
-        // No need to restructure - send data as-is since social links are already individual fields
+      const toOptionalNumber = (value: unknown): number | undefined => {
+        if (value === null || value === undefined || value === "") return undefined;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : undefined;
       };
 
-      const url = profileExists
-        ? `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/influencers/me`
-        : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/influencers/me`;
+      const pricing = {
+        post: toOptionalNumber(data.pricing?.post),
+        reel: toOptionalNumber(data.pricing?.reel),
+        story: toOptionalNumber(data.pricing?.story),
+      };
+
+      const profileData: any = {
+        handle: (data.handle || "").trim(),
+        bio: data.bio || "",
+        categories: (data.categories || [])
+          .map((category) => String(category).trim())
+          .filter(Boolean),
+        location: data.location || "",
+        followerCount: toOptionalNumber(data.followerCount) ?? 0,
+        tags: (data.tags || []).map((tag) => String(tag).trim()).filter(Boolean),
+        avatarUrl: data.avatarUrl || "",
+        portfolio: (data.portfolio || []).filter(Boolean),
+        instagram: data.instagram || "",
+        youtube: data.youtube || "",
+        tiktok: data.tiktok || "",
+        twitter: data.twitter || "",
+        other: data.other || "",
+        averageEngagementRate: toOptionalNumber(data.averageEngagementRate) ?? 0,
+      };
+
+      if (pricing.post !== undefined || pricing.reel !== undefined || pricing.story !== undefined) {
+        profileData.pricing = pricing;
+      }
+
+      const url = `${apiBaseUrl}/api/influencers/me`;
 
       const method = profileExists ? "PUT" : "POST";
 
@@ -284,13 +317,30 @@ const InfluencerProfile: React.FC = () => {
         body: JSON.stringify(profileData),
       });
 
-      if (!res.ok) throw new Error("Failed to save profile");
+      const responseBody = await res.json().catch(() => null);
+      if (!res.ok) {
+        const validationError = responseBody?.errors
+          ? Object.values(responseBody.errors)[0] as { message?: string }
+          : null;
+        const message =
+          responseBody?.msg ||
+          responseBody?.message ||
+          validationError?.message ||
+          "Failed to save profile";
+        throw new Error(String(message));
+      }
+
+      const savedProfile = mapApiProfileToForm(responseBody);
+      reset(savedProfile);
+      setInitialProfileData(savedProfile);
+      setAvatarPreview(savedProfile.avatarUrl || null);
+      setProfileExists(true);
       toast.success("Profile saved successfully!");
       setIsEditMode(false);
     } catch (err: any) {
       toast.error(err.message || "Could not save profile");
     }
-  }, [profileExists, token]);
+  }, [apiBaseUrl, mapApiProfileToForm, profileExists, reset, token]);
 
   // Format followers count
   const formatFollowers = useCallback((count: number) => {

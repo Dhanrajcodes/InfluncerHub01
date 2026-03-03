@@ -1,6 +1,6 @@
 // frontend/src/components/InfluencerCard.tsx
 import React, { useContext } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { AuthContext } from "../AuthContext";
 import { FaInstagram, FaYoutube, FaTwitter, FaTiktok } from 'react-icons/fa';
 
@@ -32,6 +32,7 @@ const InfluencerCard: React.FC<InfluencerCardProps> = ({
   socialLinks
 }) => {
   const context = useContext(AuthContext);
+  const location = useLocation();
   
   // Check if context is available
   if (!context) {
@@ -165,6 +166,7 @@ const InfluencerCard: React.FC<InfluencerCardProps> = ({
         <div className="flex gap-2 mt-4">
           <Link
             to={`/influencer/${handle}`}
+            state={{ from: `${location.pathname}${location.search}` }}
             className="flex-1 btn-primary text-center py-2 rounded-lg font-medium transition-all duration-200"
           >
             View Profile
@@ -173,7 +175,7 @@ const InfluencerCard: React.FC<InfluencerCardProps> = ({
           {user?.role === "brand" && (
             <Link
               to={`/influencer/${handle}`}
-              state={{ openSponsorModal: true }}
+              state={{ openSponsorModal: true, from: `${location.pathname}${location.search}` }}
               className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white py-2 rounded-lg font-medium text-center hover:opacity-90 transition shadow-lg"
             >
               Sponsor

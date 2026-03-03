@@ -99,7 +99,7 @@ export const getMyProfile = async (req, res) => {
       .populate("categories", "name");
 
     if (!profile) {
-      return res.status(400).json({ msg: "There is no profile for this user" });
+      return res.status(404).json({ msg: "There is no profile for this user" });
     }
 
     res.json(profile);

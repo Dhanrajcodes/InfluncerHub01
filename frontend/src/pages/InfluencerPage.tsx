@@ -17,12 +17,14 @@ const InfluencerPage: React.FC = () => {
   const { handle } = useParams<{ handle: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const apiBaseUrl = process.env.REACT_APP_API_URL || process.env.VITE_API_URL || "http://localhost:5000";
   
   const { user, token } = useAuth();
 
   const [influencer, setInfluencer] = useState<InfluencerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const previousPath = (location.state as { from?: string } | null)?.from;
 
   // Portfolio lightbox
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -38,7 +40,7 @@ const InfluencerPage: React.FC = () => {
     const fetchInfluencer = async () => {
       try {
         const res = await fetch(
-          `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/influencers/handle/${handle}`,
+          `${apiBaseUrl}/api/influencers/handle/${handle}`,
           {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           }
@@ -54,7 +56,7 @@ const InfluencerPage: React.FC = () => {
     };
 
     if (handle) fetchInfluencer();
-  }, [handle, token]);
+  }, [apiBaseUrl, handle, token]);
 
   const handleCreateSponsorship = async (sponsorshipData: any) => {
     if (!token || !influencer) return;
@@ -75,7 +77,7 @@ const InfluencerPage: React.FC = () => {
         deliverables: sponsorshipData.deliverables
       };
       
-      await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/sponsorships`, data, config);
+      await axios.post(`${apiBaseUrl}/api/sponsorships`, data, config);
       toast.success("Sponsorship offer sent successfully!");
       setIsModalOpen(false);
       // Redirect to sponsorships page after successful creation
@@ -121,6 +123,18 @@ const InfluencerPage: React.FC = () => {
         : null
     );
 
+  const handleBack = () => {
+    if (previousPath) {
+      navigate(previousPath);
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/search");
+  };
+
   // Format follower count
   const formatFollowerCount = (count: number) => {
     if (count >= 1000000) {
@@ -142,6 +156,17 @@ const InfluencerPage: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="mb-6">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back</span>
+        </button>
+      </div>
+
       {/* Profile Header */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
         <div className="md:flex">
