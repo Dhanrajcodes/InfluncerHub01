@@ -15,7 +15,7 @@ services:
       - key: CLIENT_ORIGIN
         value: https://influncerhub.vercel.app
       - key: CORS_ORIGINS
-        value: https://influncerhub.vercel.app,http://localhost:3000
+        value: https://influncerhub.vercel.app,https://influencerhub.vercel.app,http://localhost:3000
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN

@@ -12,6 +12,7 @@ const getAllowedOrigins = () => {
 
   const defaultOrigins = [
     "https://influncerhub.vercel.app",
+    "https://influencerhub.vercel.app",
     "http://localhost:3000",
   ];
 
