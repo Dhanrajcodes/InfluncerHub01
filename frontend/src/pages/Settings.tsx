@@ -62,7 +62,7 @@ const Settings: React.FC = () => {
                     Update your profile information and public visibility settings.
                   </p>
                   <button
-                    onClick={() => navigate('/profile')}
+                    onClick={() => navigate('/influencer-profile')}
                     className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition text-sm"
                   >
                     Edit Profile

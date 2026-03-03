@@ -6,8 +6,9 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   token: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (name: string, email: string, password: string, role: string) => Promise<void>;
+  role: string | null;
+  login: (email: string, password: string) => Promise<User>;
+  signup: (name: string, email: string, password: string, role: string) => Promise<User>;
   logout: () => void;
 }
 
@@ -22,6 +23,38 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
 
+  const normalizeUser = (raw: any): User => {
+    const id = raw?._id || raw?.id;
+    return {
+      _id: id,
+      name: raw?.name || "",
+      email: raw?.email || "",
+      role: raw?.role || "brand",
+      avatar: raw?.avatar,
+      createdAt: raw?.createdAt || new Date().toISOString(),
+    };
+  };
+
+  useEffect(() => {
+    const storedToken = localStorage.getItem('token');
+    const storedUser = localStorage.getItem('user');
+    if (storedToken) {
+      setToken(storedToken);
+      if (storedUser) {
+        try {
+          const parsedUser = normalizeUser(JSON.parse(storedUser));
+          setUser(parsedUser);
+          setIsAuthenticated(true);
+        } catch (err) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          setToken(null);
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+      }
+    }
+  }, []);
 
   // Load user if token exists
   useEffect(() => {
@@ -35,16 +68,24 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data) {
-            setUser(data.user);
+            const normalizedUser = normalizeUser(data);
+            setUser(normalizedUser);
+            localStorage.setItem('user', JSON.stringify(normalizedUser));
             setIsAuthenticated(true);
           } else {
             // Token is invalid, clear it
             localStorage.removeItem("token");
+            localStorage.removeItem('user');
             setToken(null);
+            setUser(null);
+            setIsAuthenticated(false);
           }
         })
         .catch(() => {
+          setToken(null);
           setUser(null);
+          localStorage.removeItem("token");
+          localStorage.removeItem('user');
           setIsAuthenticated(false);
         });
     }
@@ -52,102 +93,85 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   // 🔑 Login
   const login = async (email: string, password: string) => {
-    console.log("Attempting login with:", { email }); // For debugging
-    
     try {
-      // Create AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-      
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/auth/login`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ email, password }),
         signal: controller.signal
       });
-      
-      clearTimeout(timeoutId); // Clear timeout if request completes
-      
+
+      clearTimeout(timeoutId);
       const data = await res.json();
-      console.log("Login response:", data); // For debugging
-      console.log("Login response status:", res.status); // For debugging
 
       if (!res.ok) {
-        // Throw specific error messages based on the response
         throw new Error(data.msg || "Login failed");
       }
 
+      const normalizedUser = normalizeUser(data.user);
       setToken(data.token);
       localStorage.setItem("token", data.token);
-      setUser(data.user);
+      setUser(normalizedUser);
+      localStorage.setItem("user", JSON.stringify(normalizedUser));
       setIsAuthenticated(true);
+      return normalizedUser;
     } catch (error) {
-      console.error("Login error:", error); // For debugging
-      
-      // Handle timeout
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("Request timeout - please check your connection");
       }
-      
-      // Handle network errors
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('Network error - please check your connection');
+
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        throw new Error("Network error - please check your connection");
       }
-      
+
       throw error;
     }
   };
 
   // 🔑 Signup
   const signup = async (name: string, email: string, password: string, role: string) => {
-    console.log("Attempting signup with:", { name, email, role }); // For debugging
-    
     try {
-      // Create AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-      
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/auth/register`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ name, email, password, role }),
         signal: controller.signal
       });
-      
-      clearTimeout(timeoutId); // Clear timeout if request completes
-      
+
+      clearTimeout(timeoutId);
       const data = await res.json();
-      console.log("Signup response:", data); // For debugging
-      console.log("Signup response status:", res.status); // For debugging
-      
+
       if (!res.ok) {
-        // Throw specific error messages based on the response
         throw new Error(data.msg || data.errors?.[0]?.msg || "Signup failed");
       }
 
+      const normalizedUser = normalizeUser(data.user);
       setToken(data.token);
       localStorage.setItem("token", data.token);
-      setUser(data.user);
+      setUser(normalizedUser);
+      localStorage.setItem("user", JSON.stringify(normalizedUser));
       setIsAuthenticated(true);
 
-      return Promise.resolve(data);
+      return normalizedUser;
     } catch (error) {
-      console.error("Signup error:", error); // For debugging
-      
-      // Handle timeout
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("Request timeout - please check your connection");
       }
-      
-      // Handle network errors
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('Network error - please check your connection');
+
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        throw new Error("Network error - please check your connection");
       }
-      
+
       throw error;
     }
   };
@@ -158,10 +182,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setUser(null);
     setToken(null);
     localStorage.removeItem("token");
+    localStorage.removeItem("user");
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, token, login, signup, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, token, role: user ? user.role : null, login, signup, logout }}>
       {children}
     </AuthContext.Provider>
   );

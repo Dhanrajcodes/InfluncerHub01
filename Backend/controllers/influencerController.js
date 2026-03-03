@@ -23,21 +23,25 @@ export const createOrUpdateProfile = async (req, res) => {
   } = req.body;
 
   const profileFields = { user: req.user.id };
+  const existingProfile = await InfluencerProfile.findOne({ user: req.user.id });
 
-  if (handle) profileFields.handle = handle;
-  if (bio) profileFields.bio = bio;
-  if (location) profileFields.location = location;
-  if (followerCount) profileFields.followerCount = followerCount;
-  if (pricing) profileFields.pricing = pricing;
-  if (tags) profileFields.tags = tags;
-  if (portfolio) profileFields.portfolio = portfolio;
-  if (averageEngagementRate) profileFields.averageEngagementRate = averageEngagementRate;
+  if (!existingProfile && (!handle || !String(handle).trim())) {
+    return res.status(400).json({ msg: "Handle is required" });
+  }
+
+  if (handle !== undefined) profileFields.handle = String(handle).trim();
+  if (bio !== undefined) profileFields.bio = bio;
+  if (location !== undefined) profileFields.location = location;
+  if (followerCount !== undefined) profileFields.followerCount = followerCount;
+  if (pricing !== undefined) profileFields.pricing = pricing;
+  if (tags !== undefined) profileFields.tags = tags;
+  if (portfolio !== undefined) profileFields.portfolio = portfolio;
+  if (averageEngagementRate !== undefined) profileFields.averageEngagementRate = averageEngagementRate;
 
   // ✅ Always include avatarUrl (empty string if removed)
   profileFields.avatarUrl = avatarUrl || "";
 
   // ✅ Merge socialLinks safely (don't overwrite missing ones)
-  const existingProfile = await InfluencerProfile.findOne({ user: req.user.id });
   const existingLinks = existingProfile?.socialLinks || {};
 
   profileFields.socialLinks = {
@@ -109,7 +113,7 @@ export const getMyProfile = async (req, res) => {
 export const getProfileByHandle = async (req, res) => {
   try {
     const profile = await InfluencerProfile.findOne({ handle: req.params.handle })
-      .populate("user", ["name", "email", "avatar"])
+      .populate("user", ["_id", "name", "avatar"])
       .populate("categories", "name");
 
     if (!profile) {
@@ -139,6 +143,10 @@ export const searchInfluencers = async (req, res) => {
     sort = "-followerCount",
   } = req.query;
   const filter = {};
+  const parsedPage = Number(page);
+  const parsedLimit = Number(limit);
+  const safePage = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1;
+  const safeLimit = Number.isFinite(parsedLimit) ? Math.min(50, Math.max(1, parsedLimit)) : 20;
 
   if (q) {
     filter.$or = [
@@ -160,17 +168,17 @@ export const searchInfluencers = async (req, res) => {
   }
 
   try {
-    const skip = (page - 1) * limit;
+    const skip = (safePage - 1) * safeLimit;
     const docs = await InfluencerProfile.find(filter)
       .populate("user", ["name", "avatar"])
       .populate("categories", "name")
       .sort(sort)
       .skip(skip)
-      .limit(Number(limit));
+      .limit(safeLimit);
 
     const total = await InfluencerProfile.countDocuments(filter);
 
-    res.json({ total, page: Number(page), limit: Number(limit), results: docs });
+    res.json({ total, page: safePage, limit: safeLimit, results: docs });
   } catch (err) {
     console.error("Error searching influencers:", err.message);
     res.status(500).send("Server Error");
@@ -181,18 +189,22 @@ export const searchInfluencers = async (req, res) => {
 export const getAllInfluencers = async (req, res) => {
   try {
     const { page = 1, limit = 20, sort = "-createdAt" } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
+    const safePage = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1;
+    const safeLimit = Number.isFinite(parsedLimit) ? Math.min(50, Math.max(1, parsedLimit)) : 20;
+    const skip = (safePage - 1) * safeLimit;
     
     const docs = await InfluencerProfile.find()
       .populate("user", ["name", "avatar"])
       .populate("categories", "name")
       .sort(sort)
       .skip(skip)
-      .limit(Number(limit));
+      .limit(safeLimit);
 
     const total = await InfluencerProfile.countDocuments();
 
-    res.json({ total, page: Number(page), limit: Number(limit), results: docs });
+    res.json({ total, page: safePage, limit: safeLimit, results: docs });
   } catch (err) {
     console.error("Error fetching all influencers:", err.message);
     res.status(500).send("Server Error");

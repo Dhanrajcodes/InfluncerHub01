@@ -56,7 +56,7 @@ export const acceptSponsorship = async (id: string, token: string) => {
       Authorization: `Bearer ${token}`
     }
   };
-  const response = await axios.put(`${API_URL}/${id}/accept`, {}, config);
+  const response = await axios.patch(`${API_URL}/${id}/accept`, {}, config);
   return response.data;
 };
 
@@ -67,7 +67,7 @@ export const rejectSponsorship = async (id: string, token: string) => {
       Authorization: `Bearer ${token}`
     }
   };
-  const response = await axios.put(`${API_URL}/${id}/reject`, {}, config);
+  const response = await axios.patch(`${API_URL}/${id}/reject`, {}, config);
   return response.data;
 };
 

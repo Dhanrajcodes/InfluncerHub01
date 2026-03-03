@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import User from './models/User.js';
 import InfluencerProfile from './models/InfluencerProfile.js';
+import BrandProfile from './models/BrandProfile.js';
 import Sponsorship from './models/Sponsorship.js';
 import Category from './models/Category.js';
 
@@ -17,6 +18,7 @@ async function seed() {
 
   // Clear existing data
   await User.deleteMany({});
+  await BrandProfile.deleteMany({});
   await InfluencerProfile.deleteMany({});
   await Sponsorship.deleteMany({});
   await Category.deleteMany({});
@@ -36,6 +38,15 @@ async function seed() {
     email: 'sponsor@example.com',
     password: sponsorPassword,
     role: 'brand',
+  });
+
+  const brandProfile = await BrandProfile.create({
+    user: sponsor._id,
+    companyName: 'Demo Sponsor Co',
+    industry: 'Fitness',
+    contactEmail: 'partnerships@demosponsor.com',
+    description: 'Demo brand profile for testing brand mode.',
+    budgetPerPost: 5000,
   });
 
   // Create demo influencer
@@ -69,10 +80,11 @@ async function seed() {
   // Create sponsorship
   await Sponsorship.create({
     title: 'Demo Sponsorship',
-    brand: sponsor._id,
+    brand: brandProfile._id,
     influencer: influencerProfile._id,
     status: 'pending',
     description: 'Demo campaign for fitness product',
+    budget: 5000,
   });
 
   console.log('Demo data seeded!');

@@ -37,7 +37,7 @@ export interface AuthResponse {
 // -------- BRAND PROFILE --------
 export interface BrandProfile {
   _id: string;
-  user?: { _id: string; name: string; email: string }; // Populated user object
+  user?: { _id: string; name: string; email?: string }; // Populated user object
   companyName: string;
   industry: string;
   description?: string;
@@ -57,7 +57,7 @@ export interface BrandProfile {
 // -------- INFLUENCER PROFILE --------
 export interface InfluencerProfile {
   _id: string;
-  user?: { _id: string; name: string; email: string; avatar?: string }; // Populated user object
+  user?: { _id: string; name: string; email?: string; avatar?: string }; // Populated user object
   handle: string;
   bio?: string;
 
@@ -104,7 +104,7 @@ export interface Sponsorship {
   _id: string;
   brand: { 
     _id: string; 
-    user: { _id: string; name: string; email: string } | string;
+    user: { _id: string; name: string; email?: string } | string;
     companyName: string;
     contactEmail: string;
     name: string;

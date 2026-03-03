@@ -1,4 +1,4 @@
-// frontend/src/pages/Profile.tsx
+// frontend/src/pages/InfluencerProfile.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
@@ -20,7 +20,7 @@ interface ProfileFormValues {
   avatarUrl?: string;
   portfolio?: string[];
   tags?: string[];
-  averageEngagementRate?: number; // Added engagement rate
+  averageEngagementRate?: number;
   pricing?: {
     post?: number;
     reel?: number;
@@ -28,7 +28,7 @@ interface ProfileFormValues {
   };
 }
 
-const Profile: React.FC = () => {
+const InfluencerProfile: React.FC = () => {
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const {
@@ -50,6 +50,14 @@ const Profile: React.FC = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [profileExists, setProfileExists] = useState(false);
   const [initialProfileData, setInitialProfileData] = useState<ProfileFormValues | null>(null);
+
+  // Check user role and redirect if not an influencer
+  useEffect(() => {
+    if (user && user.role !== 'influencer') {
+      navigate('/dashboard');
+      toast.error('Access denied. Only influencers can access this page.');
+    }
+  }, [user, navigate]);
 
   // Memoized functions to prevent unnecessary re-renders
   const addCategory = useCallback(() => {
@@ -174,39 +182,6 @@ const Profile: React.FC = () => {
     setIsEditMode(false);
   }, [initialProfileData, reset]);
 
-  // const handleDelete = useCallback(async () => {
-  //   if (!window.confirm("Are you sure you want to delete your profile?")) return;
-  //   try {
-  //     const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/influencers/me`, {
-  //       method: "DELETE",
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     if (!res.ok) throw new Error("Failed to delete profile");
-  //     toast.success("Profile deleted successfully!");
-  //     reset({
-  //       handle: "",
-  //       bio: "",
-  //       categories: [],
-  //       followerCount: 0,
-  //       instagram: "",
-  //       youtube: "",
-  //       twitter: "",
-  //       tiktok: "",
-  //       other: "",
-  //       location: "",
-  //       avatarUrl: "",
-  //       portfolio: [],
-  //       tags: [],
-  //       averageEngagementRate: 0,
-  //       pricing: {},
-  //     });
-  //     setAvatarPreview(null);
-  //     setIsEditMode(true);
-  //   } catch (err: any) {
-  //     toast.error(err.message || "Could not delete profile");
-  //   }
-  // }, [token, reset]);
-
   // Format currency
   const currencySymbol = () => "₹";
 
@@ -220,10 +195,10 @@ const Profile: React.FC = () => {
   // Fetch current influencer profile
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!token) {
-      navigate('/login');
-      return;
-    }
+      if (!token || user?.role !== 'influencer') {
+        navigate('/login');
+        return;
+      }
       try {
         const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/influencers/me`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -280,8 +255,10 @@ const Profile: React.FC = () => {
       }
     };
 
-    fetchProfile();
-  }, [token, reset, navigate]);
+    if (user?.role === 'influencer') {
+      fetchProfile();
+    }
+  }, [token, reset, navigate, user?.role]);
 
   // Handle form submission
   const onSubmit = useCallback(async (data: ProfileFormValues) => {
@@ -325,6 +302,19 @@ const Profile: React.FC = () => {
     }
     return count.toString();
   }, []);
+
+  if (user?.role !== 'influencer') {
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">Access Denied</h1>
+          <p className="text-gray-600 dark:text-gray-300">
+            Only influencers can access this page. Your current role is: {user?.role}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background-light to-white dark:from-gray-900 dark:to-gray-900 py-12 px-4">
@@ -798,148 +788,105 @@ const Profile: React.FC = () => {
 
                     {/* Portfolio Upload */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Portfolio</label>
-                      <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          multiple 
-                          className="hidden" 
-                          id="portfolio-upload" 
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Portfolio Images</label>
+                      <div className="flex items-center gap-2 mb-2">
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
                           onChange={handlePortfolioUpload}
                           disabled={uploading}
+                          className="input flex-grow"
                         />
-                        <label htmlFor="portfolio-upload" className="cursor-pointer">
-                          {uploading ? (
-                            <div className="flex flex-col items-center">
-                              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mb-2"></div>
-                              <p className="text-gray-600 dark:text-gray-300">Uploading...</p>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="mx-auto bg-gray-200 dark:bg-gray-700 rounded-full p-3 w-12 h-12 flex items-center justify-center mb-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                </svg>
-                              </div>
-                              <p className="text-gray-600 dark:text-gray-300">
-                                <span className="text-primary font-medium">Click to upload</span> or drag and drop
-                              </p>
-                              <p className="text-gray-500 text-sm mt-1">PNG, JPG, GIF up to 10MB</p>
-                            </>
-                          )}
-                        </label>
+                        {uploading && (
+                          <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary"></div>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                        {getValues("portfolio")?.map((image, index) => (
+                          <div key={index} className="relative group">
+                            <img 
+                              src={image} 
+                              alt={`Portfolio ${index + 1}`} 
+                              className="w-full aspect-square object-cover rounded-lg"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = "https://placehold.co/300";
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeImage(index)}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     </div>
-
-                    {/* Portfolio Preview */}
-                    <Controller
-                      name="portfolio"
-                      control={control}
-                      render={({ field }) => (
-                        <>
-                          {field.value && field.value.length > 0 && (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                              {field.value.map((image, index) => (
-                                <div key={index} className="relative group aspect-square rounded-lg overflow-hidden">
-                                  <img 
-                                    src={image} 
-                                    alt={`Portfolio ${index + 1}`} 
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
-                                      target.src = "https://placehold.co/300";
-                                    }}
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => removeImage(index)}
-                                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    />
                   </div>
 
                   <div>
-                    <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-6 sticky top-8">
-                      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Preview</h2>
-                      
-                      <div className="mb-4">
-                        <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Avatar</h3>
-                        {avatarPreview ? (
-                          <img 
-                            src={avatarPreview} 
-                            alt="Avatar Preview" 
-                            className="w-24 h-24 rounded-full object-cover mx-auto bg-white"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.src = "https://placehold.co/100";
-                            }}
-                          />
-                        ) : (
-                          <div className="w-24 h-24 rounded-full bg-gray-200 dark:bg-gray-600 mx-auto flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
-                          </div>
-                        )}
-                        <div className="mt-2 text-center">
-                          <label className="text-sm text-primary hover:underline cursor-pointer">
-                            <input 
-                              type="file" 
-                              accept="image/*" 
-                              className="hidden" 
-                              onChange={handleAvatarUpload}
-                              disabled={uploading}
+                    {/* Avatar */}
+                    <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-6 mb-6">
+                      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Avatar</h2>
+                      <div className="flex flex-col items-center">
+                        <div className="relative">
+                          {avatarPreview ? (
+                            <img 
+                              src={avatarPreview} 
+                              alt="Avatar Preview" 
+                              className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-lg"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = "https://placehold.co/100";
+                              }}
                             />
-                            Change Photo
-                          </label>
+                          ) : (
+                            <div className="w-32 h-32 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-4">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleAvatarUpload}
+                            disabled={uploading}
+                            className="input"
+                          />
+                          {uploading && (
+                            <div className="mt-2 animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary mx-auto"></div>
+                          )}
                         </div>
                       </div>
+                    </div>
 
+                    {/* Pricing Preview */}
+                    <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-6">
+                      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Pricing Preview</h2>
                       <div className="space-y-3">
-                        <div>
-                          <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-1">Handle</h3>
-                          <p className="text-gray-900 dark:text-white">@{getValues("handle") || "handle"}</p>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-300">Post</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {formatCurrency(getValues("pricing")?.post)}
+                          </span>
                         </div>
-                        
-                        <div>
-                          <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-1">Bio</h3>
-                          <p className="text-gray-600 dark:text-gray-300 text-sm line-clamp-3">
-                            {getValues("bio") || "No bio provided."}
-                          </p>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-300">Reel</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {formatCurrency(getValues("pricing")?.reel)}
+                          </span>
                         </div>
-                        
-                        <div>
-                          <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-1">Location</h3>
-                          <p className="text-gray-900 dark:text-white">
-                            {getValues("location") || "Not specified"}
-                          </p>
-                        </div>
-                        
-                        <div>
-                          <h3 className="font-medium text-gray-700 dark:text-gray-300 mb-1">Categories</h3>
-                          <div className="flex flex-wrap gap-1">
-                            {getValues("categories")?.slice(0, 3).map((category, i) => (
-                              <span key={i} className="text-xs px-2 py-1 bg-primary/20 text-primary dark:text-primary-light rounded-full">
-                                {category}
-                              </span>
-                            ))}
-                            {getValues("categories") && getValues("categories")!.length > 3 && (
-                              <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-full">
-                                +{getValues("categories")!.length - 3}
-                              </span>
-                            )}
-                          </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-300">Story</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {formatCurrency(getValues("pricing")?.story)}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -954,4 +901,4 @@ const Profile: React.FC = () => {
   );
 };
 
-export default Profile;
+export default InfluencerProfile;

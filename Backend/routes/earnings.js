@@ -10,6 +10,9 @@ const router = express.Router();
 // Earnings summary for influencer based on accepted/completed sponsorship budgets
 router.get("/summary", auth, async (req, res) => {
   try {
+    if (req.user.role !== "influencer") {
+      return res.status(403).json({ message: "Only influencers can access earnings data" });
+    }
     const profile = await InfluencerProfile.findOne({ user: req.user._id });
     if (!profile) return res.json({ total: 0, month: 0, pending: 0 });
     const statuses = ["accepted", "completed"];
@@ -38,6 +41,9 @@ router.get("/summary", auth, async (req, res) => {
 
 router.get("/transactions", auth, async (req, res) => {
   try {
+    if (req.user.role !== "influencer") {
+      return res.status(403).json({ message: "Only influencers can access earnings data" });
+    }
     const profile = await InfluencerProfile.findOne({ user: req.user._id });
     if (!profile) return res.json([]);
     const tx = await Sponsorship.find({ influencer: profile._id })

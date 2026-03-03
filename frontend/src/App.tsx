@@ -1,15 +1,18 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import MainLayout from "./layouts/MainLayouts";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 // Import your pages
 import HomePage from "./pages/Home";
 import LoginPage from "./pages/Login";
 import SignupPage from "./pages/Signup";
-import ProfilePage from "./pages/Profile";
 import BrandProfilePage from "./pages/BrandProfile";
+import InfluencerProfile from "./pages/InfluencerProfile";
 import PublicBrandProfilePage from "./pages/PublicBrandProfile";
 import DashboardPage from "./pages/Dashboard";
+import BrandDashboard from "./pages/BrandDashboard";
+import InfluencerDashboard from "./pages/InfluencerDashboard";
 import SearchPage from "./pages/SearchPage";
 import InfluencerPage from "./pages/InfluencerPage";
 import SponsorshipsPage from "./pages/SponsorshipsPage";
@@ -39,19 +42,106 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/brand-profile" element={<BrandProfilePage />} />
+          
+          {/* Role-specific profile routes with protection */}
+          <Route 
+            path="/brand-profile" 
+            element={
+              <ProtectedRoute allowedRoles={['brand']}>
+                <BrandProfilePage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/influencer-profile" 
+            element={
+              <ProtectedRoute allowedRoles={['influencer']}>
+                <InfluencerProfile />
+              </ProtectedRoute>
+            } 
+          />
+          
           <Route path="/brand/:brandId" element={<PublicBrandProfilePage />} />
+          
+          {/* Role-specific dashboards with protection */}
+          <Route 
+            path="/brand/dashboard" 
+            element={
+              <ProtectedRoute allowedRoles={['brand']}>
+                <BrandDashboard />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/influencer/dashboard" 
+            element={
+              <ProtectedRoute allowedRoles={['influencer']}>
+                <InfluencerDashboard />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Keep the old dashboard route for backward compatibility, but redirect */}
           <Route path="/dashboard" element={<DashboardPage />} />
+          
           <Route path="/search" element={<SearchPage />} />
           <Route path="/influencer/:handle" element={<InfluencerPage />} />
-          <Route path="/sponsorships" element={<SponsorshipsPage />} />
-          <Route path="/sponsorships/create" element={<CreateSponsorshipPage />} />
-          <Route path="/sponsorships/:id" element={<SponsorshipDetailPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/messages" element={<MessagesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/contact-brand/:id" element={<ContactBrandPage />} />
+          <Route
+            path="/sponsorships"
+            element={
+              <ProtectedRoute allowedRoles={["brand", "influencer"]}>
+                <SponsorshipsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sponsorships/create"
+            element={
+              <ProtectedRoute allowedRoles={["brand"]}>
+                <CreateSponsorshipPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sponsorships/:id"
+            element={
+              <ProtectedRoute allowedRoles={["brand", "influencer"]}>
+                <SponsorshipDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <ProtectedRoute allowedRoles={["brand", "influencer"]}>
+                <AnalyticsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/messages"
+            element={
+              <ProtectedRoute allowedRoles={["brand", "influencer"]}>
+                <MessagesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute allowedRoles={["brand", "influencer"]}>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/contact-brand/:id"
+            element={
+              <ProtectedRoute allowedRoles={["influencer"]}>
+                <ContactBrandPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/brands" element={<ForBrandsPage />} />
           <Route path="/influencers" element={<ForInfluencersPage />} />
           <Route path="/about" element={<AboutPage />} />

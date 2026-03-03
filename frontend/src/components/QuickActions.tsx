@@ -144,7 +144,7 @@ const QuickActions: React.FC = () => {
         </Link>
         
         <Link 
-          to="/profile" 
+          to="/influencer-profile" 
           className="card p-4 hover-lift flex flex-col items-center justify-center text-center h-32 group transition-all duration-300 border border-gray-200 dark:border-gray-700"
           aria-label="View My Profile"
         >

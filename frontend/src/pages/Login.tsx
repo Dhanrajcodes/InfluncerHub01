@@ -14,7 +14,7 @@ interface LoginFormValues {
 const Login: React.FC = () => {
   const { register, handleSubmit, setError, formState: { errors } } = useForm<LoginFormValues>();
   const navigate = useNavigate();
-  const { login } = useAuth(); // from your auth context
+  const { login } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -27,9 +27,15 @@ const Login: React.FC = () => {
     
     setLoading(true);
     try {
-      await login(data.email, data.password);
+      const loggedInUser = await login(data.email, data.password);
       toast.success("Welcome back!");
-      navigate("/dashboard");
+      if (loggedInUser.role === 'brand') {
+        navigate("/brand/dashboard");
+      } else if (loggedInUser.role === 'influencer') {
+        navigate("/influencer/dashboard");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err: any) {
       setLoading(false);
       console.log("Login error:", err); // For debugging

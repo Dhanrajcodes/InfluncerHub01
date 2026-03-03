@@ -1,159 +1,223 @@
 import express from "express";
+import mongoose from "mongoose";
 import auth from "../middleware/authMiddleware.js";
 import Message from "../models/Message.js";
 import MessageRequest from "../models/MessageRequest.js";
 import UserConnection from "../models/UserConnection.js";
 import User from "../models/User.js";
+import BrandProfile from "../models/BrandProfile.js";
+import InfluencerProfile from "../models/InfluencerProfile.js";
+import Sponsorship from "../models/Sponsorship.js";
+import { sendToUser } from "../utils/websocketServer.js";
 
 const router = express.Router();
 
-// Get messages between two users
+const normalizeId = (value) => {
+  if (!value) return null;
+  if (typeof value === "object") {
+    if (value._id) return String(value._id);
+    if (value.id) return String(value.id);
+    return null;
+  }
+
+  const text = String(value);
+  if (text.includes("ObjectId(")) {
+    const match = text.match(/'([^']+)'/);
+    return match?.[1] || null;
+  }
+
+  return text;
+};
+
+const currentUserId = (req) => String(req.user.id || req.user._id);
+
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
+const rolesCanMessage = (roleA, roleB) => {
+  return (
+    (roleA === "brand" && roleB === "influencer") ||
+    (roleA === "influencer" && roleB === "brand")
+  );
+};
+
+const hasSponsorshipRelationship = async (senderUserId, recipientUserId) => {
+  const [senderBrand, senderInfluencer, recipientBrand, recipientInfluencer] = await Promise.all([
+    BrandProfile.findOne({ user: senderUserId }).select("_id").lean(),
+    InfluencerProfile.findOne({ user: senderUserId }).select("_id").lean(),
+    BrandProfile.findOne({ user: recipientUserId }).select("_id").lean(),
+    InfluencerProfile.findOne({ user: recipientUserId }).select("_id").lean(),
+  ]);
+
+  const relationshipFilters = [];
+
+  if (senderBrand && recipientInfluencer) {
+    relationshipFilters.push({ brand: senderBrand._id, influencer: recipientInfluencer._id });
+  }
+
+  if (senderInfluencer && recipientBrand) {
+    relationshipFilters.push({ brand: recipientBrand._id, influencer: senderInfluencer._id });
+  }
+
+  if (relationshipFilters.length === 0) return false;
+
+  const sponsorship = await Sponsorship.findOne({
+    $or: relationshipFilters,
+    status: { $in: ["pending", "accepted", "completed"] },
+  }).select("_id").lean();
+
+  return !!sponsorship;
+};
+
+const hasDirectMessagingPermission = async (senderUserId, recipientUserId) => {
+  const [connection, acceptedRequest, sponsorship] = await Promise.all([
+    UserConnection.findOne({
+      $or: [
+        { user1: senderUserId, user2: recipientUserId },
+        { user1: recipientUserId, user2: senderUserId },
+      ],
+    })
+      .select("_id")
+      .lean(),
+    MessageRequest.findOne({
+      $or: [
+        { from: senderUserId, to: recipientUserId, status: "accepted" },
+        { from: recipientUserId, to: senderUserId, status: "accepted" },
+      ],
+    })
+      .select("_id")
+      .lean(),
+    hasSponsorshipRelationship(senderUserId, recipientUserId),
+  ]);
+
+  return !!connection || !!acceptedRequest || sponsorship;
+};
+
+const formatMessage = (messageDoc) => {
+  const senderId = normalizeId(messageDoc.sender);
+  const recipientId = normalizeId(messageDoc.recipient);
+  const senderName = typeof messageDoc.sender === "object" ? messageDoc.sender?.name : undefined;
+  const recipientName = typeof messageDoc.recipient === "object" ? messageDoc.recipient?.name : undefined;
+
+  return {
+    ...messageDoc.toObject(),
+    id: String(messageDoc._id),
+    senderId,
+    recipientId,
+    senderName: senderName || "Unknown User",
+    recipientName: recipientName || "Unknown User",
+  };
+};
+
 router.get("/", auth, async (req, res) => {
   try {
-    const { recipient } = req.query;
-    
-    if (!recipient) {
-      return res.status(400).json({ error: "Recipient ID is required" });
-    }
-    
-    // Ensure we have a proper recipient ID (not an object)
-    let properRecipientId = recipient;
-    if (typeof recipient === 'object' && recipient !== null) {
-      // If recipient is an object, try to extract the _id property
-      properRecipientId = recipient._id ? recipient._id.toString() : recipient.id ? recipient.id.toString() : null;
-    } else if (typeof recipient === 'string' && recipient.match(/ObjectId\(/)) {
-      // If it's a string representation of an ObjectId, extract the ID
-      const match = recipient.match(/'([^']+)'/);
-      if (match && match[1]) {
-        properRecipientId = match[1];
-      }
-    }
-    
-    // Validate recipientId
-    if (!properRecipientId) {
+    const senderUserId = currentUserId(req);
+    const recipientId = normalizeId(req.query.recipient);
+
+    if (!recipientId || !isValidObjectId(recipientId)) {
       return res.status(400).json({ error: "Valid recipient ID is required" });
     }
-    
-    // Check if there's a connection between users
-    const connection = await UserConnection.findOne({
-      $or: [
-        { user1: req.user.id, user2: properRecipientId },
-        { user1: properRecipientId, user2: req.user.id }
-      ]
-    });
-    
-    // If there's no connection, check if there's a message request
-    if (!connection) {
-      const request = await MessageRequest.findOne({
-        $or: [
-          { from: req.user.id, to: properRecipientId },
-          { from: properRecipientId, to: req.user.id }
-        ]
-      });
-      
-      // If there's no request, return empty array
-      if (!request) {
-        return res.json([]);
-      }
+
+    if (recipientId === senderUserId) {
+      return res.status(400).json({ error: "Cannot fetch a conversation with yourself" });
     }
-    
-    // Get messages between current user and recipient
+
+    const recipientUser = await User.findById(recipientId).select("_id role");
+    if (!recipientUser) {
+      return res.status(404).json({ error: "Recipient user not found" });
+    }
+
+    if (!rolesCanMessage(req.user.role, recipientUser.role)) {
+      return res.status(403).json({ error: "Messaging is only allowed between brand and influencer accounts" });
+    }
+
+    const [connection, request, sponsorship] = await Promise.all([
+      UserConnection.findOne({
+        $or: [
+          { user1: senderUserId, user2: recipientId },
+          { user1: recipientId, user2: senderUserId },
+        ],
+      })
+        .select("_id")
+        .lean(),
+      MessageRequest.findOne({
+        $or: [
+          { from: senderUserId, to: recipientId, status: { $in: ["pending", "accepted"] } },
+          { from: recipientId, to: senderUserId, status: { $in: ["pending", "accepted"] } },
+        ],
+      })
+        .select("_id")
+        .lean(),
+      hasSponsorshipRelationship(senderUserId, recipientId),
+    ]);
+
+    if (!connection && !request && !sponsorship) {
+      return res.json([]);
+    }
+
     const userMessages = await Message.find({
       $or: [
-        { sender: req.user.id, recipient: properRecipientId },
-        { sender: properRecipientId, recipient: req.user.id }
-      ]
+        { sender: senderUserId, recipient: recipientId },
+        { sender: recipientId, recipient: senderUserId },
+      ],
     })
-    .sort({ timestamp: 1 })
-    .populate('sender', 'name')
-    .populate('recipient', 'name');
-    
-    // Format messages for frontend
-    const formattedMessages = userMessages.map(msg => ({
-      ...msg.toObject(),
-      id: msg._id.toString(),
-      senderId: msg.sender._id.toString(),
-      recipientId: msg.recipient._id.toString(),
-      senderName: msg.sender.name,
-      recipientName: msg.recipient.name
-    }));
-    
-    res.json(formattedMessages);
+      .sort({ timestamp: 1 })
+      .populate("sender", "name")
+      .populate("recipient", "name");
+
+    res.json(userMessages.map(formatMessage));
   } catch (err) {
     console.error("Error fetching messages:", err);
     res.status(500).json({ error: "Failed to fetch messages" });
   }
 });
 
-// Get conversations for a user (list of users they've messaged or who've messaged them)
 router.get("/conversations", auth, async (req, res) => {
   try {
-    // Get all messages where the user is either sender or recipient
+    const userId = currentUserId(req);
     const messages = await Message.find({
-      $or: [
-        { sender: req.user.id },
-        { recipient: req.user.id }
-      ]
+      $or: [{ sender: userId }, { recipient: userId }],
     })
-    .sort({ timestamp: -1 })
-    .populate('sender', 'name')
-    .populate('recipient', 'name');
-    
-    // Group messages by conversation partner
+      .sort({ timestamp: -1 })
+      .populate("sender", "name")
+      .populate("recipient", "name");
+
     const conversations = {};
-    
-    messages.forEach(message => {
-      // Safely get partner ID and ensure it's a proper string ID
-      let partnerId;
-      if (message.sender && message.sender.toString() === req.user.id) {
-        // Current user is sender, so partner is recipient
-        partnerId = typeof message.recipient === 'object' ? 
-          (message.recipient._id ? message.recipient._id.toString() : message.recipient.toString()) : 
-          message.recipient.toString();
-      } else if (message.recipient && message.recipient.toString() === req.user.id) {
-        // Current user is recipient, so partner is sender
-        partnerId = typeof message.sender === 'object' ? 
-          (message.sender._id ? message.sender._id.toString() : message.sender.toString()) : 
-          message.sender.toString();
-      }
-      
-      // Skip if partnerId is not available
-      if (!partnerId) return;
-      
-      // Safely get partner name
-      let partnerName;
-      if (message.sender && message.sender.toString() === req.user.id) {
-        partnerName = typeof message.recipient === 'object' ? 
-          (message.recipient.name || "Unknown User") : 
-          "Unknown User";
-      } else {
-        partnerName = typeof message.sender === 'object' ? 
-          (message.sender.name || "Unknown User") : 
-          "Unknown User";
-      }
-      
-      // If this is the first message in this conversation, or if this message is more recent
-      if (!conversations[partnerId] || 
-          new Date(message.timestamp) > new Date(conversations[partnerId].timestamp)) {
+
+    messages.forEach((message) => {
+      const senderId = normalizeId(message.sender);
+      const recipientId = normalizeId(message.recipient);
+      if (!senderId || !recipientId) return;
+
+      const partnerId = senderId === userId ? recipientId : senderId;
+      const partnerName =
+        senderId === userId
+          ? (typeof message.recipient === "object" ? message.recipient.name : "Unknown User")
+          : (typeof message.sender === "object" ? message.sender.name : "Unknown User");
+
+      if (
+        !conversations[partnerId] ||
+        new Date(message.timestamp) > new Date(conversations[partnerId].timestamp)
+      ) {
         conversations[partnerId] = {
           id: partnerId,
           userId: partnerId,
-          userName: partnerName,
+          userName: partnerName || "Unknown User",
           lastMessage: message.content,
           timestamp: message.timestamp,
-          unreadCount: message.recipient && message.recipient.toString() === req.user.id && message.status !== 'read' ? 
-            (conversations[partnerId] ? conversations[partnerId].unreadCount + 1 : 1) : 0
+          unreadCount:
+            recipientId === userId && message.status !== "read"
+              ? (conversations[partnerId] ? conversations[partnerId].unreadCount + 1 : 1)
+              : 0,
         };
-      } else if (message.recipient && message.recipient.toString() === req.user.id && message.status !== 'read') {
-        // Increment unread count for received messages
+      } else if (recipientId === userId && message.status !== "read") {
         conversations[partnerId].unreadCount += 1;
       }
     });
-    
-    // Convert to array and sort by timestamp
-    const conversationsArray = Object.values(conversations)
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    
+
+    const conversationsArray = Object.values(conversations).sort(
+      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+    );
+
     res.json(conversationsArray);
   } catch (err) {
     console.error("Error fetching conversations:", err);
@@ -161,104 +225,101 @@ router.get("/conversations", auth, async (req, res) => {
   }
 });
 
-// Send a new message
 router.post("/", auth, async (req, res) => {
   try {
-    const { content, recipientId } = req.body;
-    
-    if (!content || !recipientId) {
-      return res.status(400).json({ error: "Content and recipientId are required" });
+    const senderUserId = currentUserId(req);
+    const content = typeof req.body.content === "string" ? req.body.content.trim() : "";
+    const recipientId = normalizeId(req.body.recipientId);
+
+    if (!content || !recipientId || !isValidObjectId(recipientId)) {
+      return res.status(400).json({ error: "Content and valid recipientId are required" });
     }
-    
-    // Ensure we have a proper recipient ID (not an object)
-    let properRecipientId = recipientId;
-    if (typeof recipientId === 'object' && recipientId !== null) {
-      // If recipientId is an object, try to extract the _id property
-      properRecipientId = recipientId._id ? recipientId._id.toString() : recipientId.id ? recipientId.id.toString() : null;
-    } else if (typeof recipientId === 'string' && recipientId.match(/ObjectId\(/)) {
-      // If it's a string representation of an ObjectId, extract the ID
-      const match = recipientId.match(/'([^']+)'/);
-      if (match && match[1]) {
-        properRecipientId = match[1];
-      }
+
+    if (recipientId === senderUserId) {
+      return res.status(400).json({ error: "Cannot message yourself" });
     }
-    
-    // Validate recipientId
-    if (!properRecipientId) {
-      return res.status(400).json({ error: "Valid recipient ID is required" });
+
+    const recipientUser = await User.findById(recipientId).select("_id name role").lean();
+    if (!recipientUser) {
+      return res.status(404).json({ error: "Recipient user not found" });
     }
-    
-    // Check if there's a connection between users
-    const connection = await UserConnection.findOne({
-      $or: [
-        { user1: req.user.id, user2: properRecipientId },
-        { user1: properRecipientId, user2: req.user.id }
-      ]
-    });
-    
-    // Check if there's an existing message request
-    const existingRequest = await MessageRequest.findOne({
-      from: req.user.id,
-      to: properRecipientId,
-      status: 'pending'
-    });
-    
-    // Check if there's a sponsorship relationship
-    const Sponsorship = (await import('../models/Sponsorship.js')).default;
-    const sponsorship = await Sponsorship.findOne({
-      $or: [
-        { brand: req.user.id, influencer: properRecipientId },
-        { brand: properRecipientId, influencer: req.user.id }
-      ],
-      status: { $in: ['accepted', 'pending'] } // Only active sponsorships
-    });
-    
-    const hasSponsorship = !!sponsorship;
-    
-    if (!connection && !hasSponsorship) {
-      // If no connection and no sponsorship, create a message request instead
-      if (!existingRequest) {
-        const request = new MessageRequest({
-          from: req.user.id,
-          to: properRecipientId,
-          content: content
-        });
-        
-        await request.save();
-        return res.status(201).json({ 
-          ...request.toObject(), 
-          id: request._id.toString(),
-          type: 'request',
-          message: 'Message request sent successfully' 
-        });
-      } else {
-        return res.status(400).json({ 
-          error: 'Message request already sent. Waiting for acceptance.' 
+
+    if (!rolesCanMessage(req.user.role, recipientUser.role)) {
+      return res.status(403).json({ error: "Messaging is only allowed between brand and influencer accounts" });
+    }
+
+    const canDirectMessage = await hasDirectMessagingPermission(senderUserId, recipientId);
+    const [existingPendingRequest, incomingPendingRequest] = await Promise.all([
+      MessageRequest.findOne({
+        from: senderUserId,
+        to: recipientId,
+        status: "pending",
+      })
+        .select("_id")
+        .lean(),
+      MessageRequest.findOne({
+        from: recipientId,
+        to: senderUserId,
+        status: "pending",
+      })
+        .select("_id")
+        .lean(),
+    ]);
+
+    if (!canDirectMessage) {
+      if (existingPendingRequest) {
+        return res.status(400).json({
+          error: "Message request already sent. Waiting for acceptance.",
         });
       }
+
+      if (incomingPendingRequest) {
+        return res.status(400).json({
+          error: "This user already sent you a message request. Please accept it from Requests.",
+        });
+      }
+
+      const request = new MessageRequest({
+        from: senderUserId,
+        to: recipientId,
+        content,
+      });
+      await request.save();
+
+      const requestPayload = {
+        id: String(request._id),
+        from: senderUserId,
+        to: recipientId,
+        content: request.content,
+        timestamp: request.timestamp,
+        status: request.status,
+        senderName: req.user.name || "Unknown User",
+      };
+
+      sendToUser(recipientId, { type: "messageRequest", data: requestPayload });
+
+      return res.status(201).json({
+        ...requestPayload,
+        type: "request",
+        message: "Message request sent successfully",
+      });
     }
-    
-    // If there's a connection or sponsorship, send the message normally
+
     const message = new Message({
-      sender: req.user.id,
-      recipient: properRecipientId,
-      content: content
+      sender: senderUserId,
+      recipient: recipientId,
+      content,
     });
-    
     await message.save();
-    
-    // Populate sender info for response
-    await message.populate('sender', 'name');
-    await message.populate('recipient', 'name');
-    
-    res.status(201).json({ 
-      ...message.toObject(), 
-      id: message._id.toString(),
-      senderId: message.sender._id.toString(),
-      recipientId: message.recipient._id.toString(),
-      senderName: message.sender.name,
-      recipientName: message.recipient.name,
-      type: 'message' 
+    await message.populate("sender", "name");
+    await message.populate("recipient", "name");
+
+    const formattedMessage = formatMessage(message);
+    sendToUser(recipientId, { type: "message", data: formattedMessage });
+
+    res.status(201).json({
+      ...formattedMessage,
+      type: "message",
     });
   } catch (err) {
     console.error("Error sending message:", err);
@@ -266,20 +327,24 @@ router.post("/", auth, async (req, res) => {
   }
 });
 
-// Get message requests for a user
 router.get("/requests", auth, async (req, res) => {
   try {
-    const requests = await MessageRequest.find({ 
-      to: req.user.id,
-      status: 'pending'
-    }).populate('from', 'name');
-    
-    const formattedRequests = requests.map(req => ({
-      ...req.toObject(),
-      id: req._id.toString(),
-      senderName: req.from.name
+    const userId = currentUserId(req);
+    const requests = await MessageRequest.find({
+      to: userId,
+      status: "pending",
+    }).populate("from", "name");
+
+    const formattedRequests = requests.map((requestDoc) => ({
+      id: String(requestDoc._id),
+      from: normalizeId(requestDoc.from),
+      to: userId,
+      content: requestDoc.content,
+      timestamp: requestDoc.timestamp,
+      status: requestDoc.status,
+      senderName: typeof requestDoc.from === "object" ? requestDoc.from.name : "Unknown User",
     }));
-    
+
     res.json(formattedRequests);
   } catch (err) {
     console.error("Error fetching message requests:", err);
@@ -287,72 +352,94 @@ router.get("/requests", auth, async (req, res) => {
   }
 });
 
-// Accept a message request
+router.get("/requests/sent", auth, async (req, res) => {
+  try {
+    const userId = currentUserId(req);
+    const requests = await MessageRequest.find({
+      from: userId,
+      status: "pending",
+    }).populate("to", "name");
+
+    const formattedRequests = requests.map((requestDoc) => ({
+      id: String(requestDoc._id),
+      from: userId,
+      to: normalizeId(requestDoc.to),
+      content: requestDoc.content,
+      timestamp: requestDoc.timestamp,
+      status: requestDoc.status,
+      recipientName: typeof requestDoc.to === "object" ? requestDoc.to.name : "Unknown User",
+    }));
+
+    res.json(formattedRequests);
+  } catch (err) {
+    console.error("Error fetching sent message requests:", err);
+    res.status(500).json({ error: "Failed to fetch sent message requests" });
+  }
+});
+
 router.post("/requests/:requestId/accept", auth, async (req, res) => {
   try {
+    const userId = currentUserId(req);
     const { requestId } = req.params;
-    
-    // Validate request ID
-    if (!requestId || requestId === 'undefined') {
+
+    if (!requestId || !isValidObjectId(requestId)) {
       return res.status(400).json({ error: "Valid request ID is required" });
     }
-    
+
     const request = await MessageRequest.findOne({
       _id: requestId,
-      to: req.user.id,
-      status: 'pending'
+      to: userId,
+      status: "pending",
     });
-    
+
     if (!request) {
       return res.status(404).json({ error: "Message request not found" });
     }
-    
-    // Update request status
-    request.status = 'accepted';
+
+    const fromUser = await User.findById(request.from).select("_id role").lean();
+    if (!fromUser || !rolesCanMessage(req.user.role, fromUser.role)) {
+      return res.status(403).json({ error: "Invalid message request for current role pair" });
+    }
+
+    request.status = "accepted";
     await request.save();
-    
-    // Create connection between users - ensure we're using proper IDs
-    const fromUserId = typeof request.from === 'object' ? request.from._id.toString() : request.from.toString();
-    const toUserId = typeof request.to === 'object' ? request.to._id.toString() : request.to.toString();
-    
+
+    const fromUserId = normalizeId(request.from);
+    const toUserId = normalizeId(request.to);
+
     const existingConnection = await UserConnection.findOne({
       $or: [
         { user1: fromUserId, user2: toUserId },
-        { user1: toUserId, user2: fromUserId }
-      ]
-    });
-    
+        { user1: toUserId, user2: fromUserId },
+      ],
+    })
+      .select("_id")
+      .lean();
+
     if (!existingConnection) {
       const connection = new UserConnection({
         user1: fromUserId,
-        user2: toUserId
+        user2: toUserId,
       });
       await connection.save();
     }
-    
-    // Create the first message from the request
+
     const message = new Message({
       sender: fromUserId,
       recipient: toUserId,
-      content: request.content
+      content: request.content,
     });
-    
     await message.save();
-    
-    // Populate sender info for response
-    await message.populate('sender', 'name');
-    await message.populate('recipient', 'name');
-    
-    res.json({ 
-      message: "Message request accepted", 
-      firstMessage: {
-        ...message.toObject(),
-        id: message._id.toString(),
-        senderId: message.sender._id.toString(),
-        recipientId: message.recipient._id.toString(),
-        senderName: message.sender.name,
-        recipientName: message.recipient.name
-      }
+    await message.populate("sender", "name");
+    await message.populate("recipient", "name");
+
+    const firstMessage = formatMessage(message);
+    sendToUser(fromUserId, { type: "requestAccepted", data: { requestId: String(request._id) } });
+    sendToUser(fromUserId, { type: "message", data: firstMessage });
+
+    res.json({
+      message: "Message request accepted",
+      firstMessage,
     });
   } catch (err) {
     console.error("Error accepting message request:", err);
@@ -360,25 +447,36 @@ router.post("/requests/:requestId/accept", auth, async (req, res) => {
   }
 });
 
-// Reject a message request
 router.post("/requests/:requestId/reject", auth, async (req, res) => {
   try {
+    const userId = currentUserId(req);
     const { requestId } = req.params;
-    
+
+    if (!requestId || !isValidObjectId(requestId)) {
+      return res.status(400).json({ error: "Valid request ID is required" });
+    }
+
     const request = await MessageRequest.findOne({
       _id: requestId,
-      to: req.user.id,
-      status: 'pending'
+      to: userId,
+      status: "pending",
     });
-    
+
     if (!request) {
       return res.status(404).json({ error: "Message request not found" });
     }
-    
-    // Update request status
-    request.status = 'rejected';
+
+    const fromUser = await User.findById(request.from).select("_id role").lean();
+    if (!fromUser || !rolesCanMessage(req.user.role, fromUser.role)) {
+      return res.status(403).json({ error: "Invalid message request for current role pair" });
+    }
+
+    request.status = "rejected";
     await request.save();
-    
+
+    const fromUserId = normalizeId(request.from);
+    sendToUser(fromUserId, { type: "requestRejected", data: { requestId: String(request._id) } });
+
     res.json({ message: "Message request rejected" });
   } catch (err) {
     console.error("Error rejecting message request:", err);

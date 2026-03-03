@@ -2,9 +2,9 @@
   "name": "influencerhub-root",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run dev --prefix backend\" \"npm start --prefix frontend\"",
+    "dev": "concurrently \"npm run dev --prefix Backend\" \"npm start --prefix frontend\"",
     "frontend": "npm start --prefix frontend",
-    "backend": "npm run dev --prefix backend"
+    "backend": "npm run dev --prefix Backend"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

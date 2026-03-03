@@ -75,7 +75,7 @@ const MessageRequests: React.FC = () => {
     };
   }, [loadRequests]);
 
-  const handleAccept = async (requestId: string, senderId: string) => {
+  const handleAccept = async (requestId: string, senderId: string, senderName?: string) => {
     if (!token) return;
     
     try {
@@ -91,7 +91,7 @@ const MessageRequests: React.FC = () => {
       setIncomingRequests(prev => prev.filter(req => req.id !== requestId));
       
       // Navigate to the conversation
-      navigate(`/messages?recipient=${senderId}`);
+      navigate(`/messages?recipient=${senderId}&name=${encodeURIComponent(senderName || "Conversation")}`);
     } catch (err) {
       console.error("Error accepting message request:", err);
       alert("Failed to accept message request. Please try again.");
@@ -225,7 +225,7 @@ const MessageRequests: React.FC = () => {
                     
                     <div className="flex space-x-3 mt-3">
                       <button
-                        onClick={() => handleAccept(request.id, request.from)}
+                        onClick={() => handleAccept(request.id, request.from, request.senderName)}
                         className="px-3 py-1 bg-primary hover:bg-primary-dark text-white text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition"
                       >
                         Accept

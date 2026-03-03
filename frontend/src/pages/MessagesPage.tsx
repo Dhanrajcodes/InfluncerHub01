@@ -35,8 +35,8 @@ const MessagesPage: React.FC = () => {
     const recipientId = searchParams.get("recipient");
     const recipientName = searchParams.get("name");
     
-    if (recipientId && recipientName) {
-      setRecipient({ id: recipientId, name: recipientName });
+    if (recipientId) {
+      setRecipient({ id: recipientId, name: recipientName || "Conversation" });
     } else {
       setRecipient(null);
     }
@@ -129,21 +129,6 @@ const MessagesPage: React.FC = () => {
     if (!newMessage.trim() || !token || !recipient) return;
 
     try {
-      const messageData = {
-        content: newMessage,
-        recipientId: recipient.id,
-        senderId: user?._id,
-        senderName: user?.name || "You",
-        timestamp: new Date().toISOString()
-      };
-
-      // Send via WebSocket for real-time delivery
-      websocketService.send({
-        type: 'message',
-        data: messageData
-      });
-
-      // Also send to API for persistence
       const res = await axios.post(
         `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/messages`,
         { content: newMessage, recipientId: recipient.id },
@@ -166,10 +151,10 @@ const MessagesPage: React.FC = () => {
       setMessages(prev => {
         // Check if message already exists to avoid duplicates
         // But for sent messages, we want to update the message with the one from the server
-        if (messageData.senderId === user?._id) {
+        if (res.data.senderId === user?._id) {
           // For sent messages, replace with server version if exists, or add if not
           const serverMessage = res.data;
-          const existsIndex = prev.findIndex(msg => msg.timestamp === messageData.timestamp && msg.senderId === user?._id);
+          const existsIndex = prev.findIndex(msg => msg.id === serverMessage.id);
           
           if (existsIndex !== -1) {
             // Replace the temporary message with the server version

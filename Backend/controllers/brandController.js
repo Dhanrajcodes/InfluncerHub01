@@ -9,7 +9,7 @@ const sendError = (res, status, message, error = null) => {
   return res.status(status).json({ 
     success: false,
     error: message,
-    ...(error && { stack: error.stack })
+    ...(process.env.NODE_ENV === "development" && error && { stack: error.stack })
   });
 };
 
@@ -115,7 +115,7 @@ export const getProfileById = async (req, res) => {
     }
 
     const profile = await BrandProfile.findOne({ user: req.params.userId })
-      .populate("user", ["name", "email", "phone", "avatar"])
+      .populate("user", ["_id", "name", "avatar"])
       .exec();
     
     if (!profile) {
@@ -137,8 +137,10 @@ export const searchBrands = async (req, res) => {
     const { q, industry, minBudget, maxBudget, page = 1, limit = 20 } = req.query;
     
     // Validate pagination parameters
-    const pageNumber = Math.max(1, Number(page));
-    const pageSize = Math.min(50, Number(limit));
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
+    const pageNumber = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1;
+    const pageSize = Number.isFinite(parsedLimit) ? Math.min(50, Math.max(1, parsedLimit)) : 20;
     
     // Build filter criteria
     const filter = {};
@@ -166,7 +168,7 @@ export const searchBrands = async (req, res) => {
     
     // Apply filters with pagination
     const docs = await BrandProfile.find(filter)
-      .populate('user', ['_id', 'name', 'email', 'avatar'])
+      .populate('user', ['_id', 'name', 'avatar'])
       .sort('-createdAt')
       .skip((pageNumber - 1) * pageSize)
       .limit(pageSize)
@@ -194,11 +196,13 @@ export const getAllBrands = async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     
     // Validate pagination parameters
-    const pageNumber = Math.max(1, Number(page));
-    const pageSize = Math.min(50, Number(limit));
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
+    const pageNumber = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1;
+    const pageSize = Number.isFinite(parsedLimit) ? Math.min(50, Math.max(1, parsedLimit)) : 20;
     
     const docs = await BrandProfile.find()
-      .populate('user', ['_id', 'name', 'email', 'avatar'])
+      .populate('user', ['_id', 'name', 'avatar'])
       .sort('-createdAt')
       .skip((pageNumber - 1) * pageSize)
       .limit(pageSize)

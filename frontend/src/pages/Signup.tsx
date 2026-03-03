@@ -29,12 +29,15 @@ const Signup: React.FC = () => {
 
     setLoading(true);
     try {
-      await signup(data.name, data.email, data.password, data.role);
+      const createdUser = await signup(data.name, data.email, data.password, data.role);
       toast.success("Account created!");
-      // Small delay to ensure state is updated before navigation
-      setTimeout(() => {
+      if (createdUser.role === 'brand') {
+        navigate("/brand/dashboard", { replace: true });
+      } else if (createdUser.role === 'influencer') {
+        navigate("/influencer/dashboard", { replace: true });
+      } else {
         navigate("/dashboard", { replace: true });
-      }, 100);
+      }
     } catch (err: any) {
       setLoading(false);
       // Show specific error messages based on the error

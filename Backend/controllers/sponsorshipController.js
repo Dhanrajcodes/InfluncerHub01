@@ -2,7 +2,6 @@
 import BrandProfile from "../models/BrandProfile.js";
 import InfluencerProfile from "../models/InfluencerProfile.js";
 import Sponsorship from "../models/Sponsorship.js";
-import User from "../models/User.js";
 
 import { publishSponsorshipUpdate } from "../utils/websocketServer.js";
 
@@ -51,7 +50,7 @@ export const createSponsorship = async (req, res) => {
       select: "_id user companyName contactEmail",
       populate: {
         path: "user",
-        select: "name email"
+        select: "name"
       }
     });
     
@@ -88,7 +87,7 @@ export const getSponsorshipById = async (req, res) => {
         select: "_id user companyName contactEmail",
         populate: {
           path: "user",
-          select: "name email"
+          select: "name"
         }
       })
       .populate({
@@ -96,7 +95,7 @@ export const getSponsorshipById = async (req, res) => {
         select: "_id handle user",
         populate: {
           path: "user",
-          select: "name email"
+          select: "name"
         }
       });
 
@@ -166,7 +165,7 @@ export const getMyBrandSponsorships = async (req, res) => {
         select: "_id user companyName contactEmail",
         populate: {
           path: "user",
-          select: "name email"
+          select: "name"
         }
       })
       .populate({
@@ -229,7 +228,7 @@ export const getMySponsorships = async (req, res) => {
         select: "_id user companyName contactEmail",
         populate: {
           path: "user",
-          select: "name email"
+          select: "name"
         }
       })
       .populate({
@@ -274,10 +273,18 @@ export const getMySponsorships = async (req, res) => {
 // @access  Private (Influencer)
 export const acceptSponsorship = async (req, res) => {
   try {
+    if (req.user.role !== "influencer") {
+      return res.status(403).json({ message: "Only influencers can accept sponsorships" });
+    }
+
     const sponsorship = await Sponsorship.findById(req.params.id);
 
     if (!sponsorship) {
       return res.status(404).json({ message: "Sponsorship not found" });
+    }
+
+    if (sponsorship.status !== "pending") {
+      return res.status(400).json({ message: "Only pending sponsorships can be accepted" });
     }
 
     // Check if the logged in user is the influencer for this sponsorship
@@ -298,7 +305,7 @@ export const acceptSponsorship = async (req, res) => {
       select: "_id user companyName contactEmail",
       populate: {
         path: "user",
-        select: "name email"
+        select: "name"
       }
     });
     
@@ -343,10 +350,18 @@ export const acceptSponsorship = async (req, res) => {
 // @access  Private (Influencer)
 export const rejectSponsorship = async (req, res) => {
   try {
+    if (req.user.role !== "influencer") {
+      return res.status(403).json({ message: "Only influencers can reject sponsorships" });
+    }
+
     const sponsorship = await Sponsorship.findById(req.params.id);
 
     if (!sponsorship) {
       return res.status(404).json({ message: "Sponsorship not found" });
+    }
+
+    if (sponsorship.status !== "pending") {
+      return res.status(400).json({ message: "Only pending sponsorships can be rejected" });
     }
 
     // Check if the logged in user is the influencer for this sponsorship
@@ -367,7 +382,7 @@ export const rejectSponsorship = async (req, res) => {
       select: "_id user companyName contactEmail",
       populate: {
         path: "user",
-        select: "name email"
+        select: "name"
       }
     });
     
@@ -412,13 +427,22 @@ export const rejectSponsorship = async (req, res) => {
 // @access  Private
 export const getOpenSponsorships = async (req, res) => {
   try {
-    const sponsorships = await Sponsorship.find({ status: "pending" })
+    if (req.user.role !== "influencer") {
+      return res.status(403).json({ message: "Only influencers can view open sponsorships" });
+    }
+
+    const influencerProfile = await InfluencerProfile.findOne({ user: req.user._id }).select("_id");
+    if (!influencerProfile) {
+      return res.status(404).json({ message: "Influencer profile not found" });
+    }
+
+    const sponsorships = await Sponsorship.find({ status: "pending", influencer: influencerProfile._id })
       .populate({
         path: "brand",
         select: "_id user companyName contactEmail",
         populate: {
           path: "user",
-          select: "name email"
+          select: "name"
         }
       })
       .populate({
@@ -463,6 +487,10 @@ export const getOpenSponsorships = async (req, res) => {
 // @access  Private (Brand)
 export const cancelSponsorship = async (req, res) => {
   try {
+    if (req.user.role !== "brand") {
+      return res.status(403).json({ message: "Only brands can cancel sponsorships" });
+    }
+
     const sponsorship = await Sponsorship.findById(req.params.id);
 
     if (!sponsorship) {
@@ -473,6 +501,10 @@ export const cancelSponsorship = async (req, res) => {
     const brandProfile = await BrandProfile.findOne({ user: req.user._id });
     if (!brandProfile || sponsorship.brand.toString() !== brandProfile._id.toString()) {
       return res.status(403).json({ message: "User not authorized to cancel this sponsorship" });
+    }
+
+    if (!["pending", "accepted"].includes(sponsorship.status)) {
+      return res.status(400).json({ message: "Only pending or accepted sponsorships can be cancelled" });
     }
 
     // Update status to cancelled
@@ -487,7 +519,7 @@ export const cancelSponsorship = async (req, res) => {
       select: "_id user companyName contactEmail",
       populate: {
         path: "user",
-        select: "name email"
+        select: "name"
       }
     });
     
@@ -532,6 +564,10 @@ export const cancelSponsorship = async (req, res) => {
 // @access  Private (Brand)
 export const completeSponsorship = async (req, res) => {
   try {
+    if (req.user.role !== "brand") {
+      return res.status(403).json({ message: "Only brands can complete sponsorships" });
+    }
+
     const sponsorship = await Sponsorship.findById(req.params.id);
 
     if (!sponsorship) {
@@ -542,6 +578,10 @@ export const completeSponsorship = async (req, res) => {
     const brandProfile = await BrandProfile.findOne({ user: req.user._id });
     if (!brandProfile || sponsorship.brand.toString() !== brandProfile._id.toString()) {
       return res.status(403).json({ message: "User not authorized to complete this sponsorship" });
+    }
+
+    if (sponsorship.status !== "accepted") {
+      return res.status(400).json({ message: "Only accepted sponsorships can be marked as completed" });
     }
 
     // Update status to completed
@@ -556,7 +596,7 @@ export const completeSponsorship = async (req, res) => {
       select: "_id user companyName contactEmail",
       populate: {
         path: "user",
-        select: "name email"
+        select: "name"
       }
     });
     
@@ -575,6 +615,8 @@ export const completeSponsorship = async (req, res) => {
                                      updatedSponsorship.brand.contactEmail || 
                                      (updatedSponsorship.brand.user?.name) || 
                                      "Unknown Brand";
+    } else {
+      return res.status(403).json({ message: "Unsupported role for recent activities" });
     }
     
     // Ensure proper influencer name
@@ -612,7 +654,7 @@ export const getRecentActivities = async (req, res) => {
             select: "_id user companyName contactEmail",
             populate: {
               path: "user",
-              select: "name email"
+              select: "name"
             }
           })
           .populate({
@@ -635,7 +677,7 @@ export const getRecentActivities = async (req, res) => {
             select: "_id user companyName contactEmail",
             populate: {
               path: "user",
-              select: "name email"
+              select: "name"
             }
           })
           .populate({

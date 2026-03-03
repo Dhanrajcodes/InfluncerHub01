@@ -122,9 +122,9 @@ const Navbar: React.FC = () => {
             {isAuthenticated ? (
               <>
                 <Link
-                  to="/dashboard"
+                  to={user?.role === "brand" ? "/brand/dashboard" : "/influencer/dashboard"}
                   className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive("/dashboard")
+                    isActive("/dashboard") || isActive("/brand/dashboard") || isActive("/influencer/dashboard")
                       ? "bg-primary-light/20 text-primary-dark dark:text-primary-light"
                       : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                   }`}
@@ -221,7 +221,7 @@ const Navbar: React.FC = () => {
                   {isProfileOpen && (
                     <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 z-10">
                       <Link
-                        to={user?.role === "brand" ? "/brand-profile" : "/profile"}
+                        to={user?.role === "brand" ? "/brand-profile" : "/influencer-profile"}
                         onClick={closeProfileMenu}
                         className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                       >
@@ -311,10 +311,10 @@ const Navbar: React.FC = () => {
             {isAuthenticated ? (
               <>
                 <Link
-                  to="/dashboard"
+                  to={user?.role === "brand" ? "/brand/dashboard" : "/influencer/dashboard"}
                   onClick={closeMenu}
                   className={`block px-3 py-2 rounded-md text-base font-medium ${
-                    isActive("/dashboard")
+                    isActive("/dashboard") || isActive("/brand/dashboard") || isActive("/influencer/dashboard")
                       ? "bg-primary-light/20 text-primary-dark dark:text-primary-light"
                       : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                   }`}
@@ -378,10 +378,10 @@ const Navbar: React.FC = () => {
                 </Link>
                 
                 <Link
-                  to={user?.role === "brand" ? "/brand-profile" : "/profile"}
+                  to={user?.role === "brand" ? "/brand-profile" : "/influencer-profile"}
                   onClick={closeMenu}
                   className={`block px-3 py-2 rounded-md text-base font-medium ${
-                    (user?.role === "brand" ? isActive("/brand-profile") : isActive("/profile"))
+                    (user?.role === "brand" ? isActive("/brand-profile") : isActive("/influencer-profile"))
                       ? "bg-primary-light/20 text-primary-dark dark:text-primary-light"
                       : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                   }`}

@@ -1,294 +1,72 @@
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
-import Message from "../models/Message.js";
-import MessageRequest from "../models/MessageRequest.js";
-import UserConnection from "../models/UserConnection.js";
 
-// Placeholder for the WebSocket server instance
 let wss;
-
-// Store connected clients with their user IDs
 const clients = new Map();
 
-/**
- * Initialize WebSocket server and attach it to the HTTP server
- * @param {http.Server} server - The HTTP server instance
- */
+const parseBearerToken = (headerValue) => {
+  if (!headerValue || typeof headerValue !== "string") return null;
+  if (!headerValue.startsWith("Bearer ")) return null;
+  return headerValue.substring(7);
+};
+
+const authenticateSocket = (ws, token) => {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  ws.userId = String(decoded.id);
+  clients.set(ws.userId, ws);
+  return ws.userId;
+};
+
 export const initializeWebSocketServer = (server) => {
   wss = new WebSocketServer({ server });
 
   wss.on("connection", (ws, request) => {
-    console.log("New client connected");
-    
-    // Extract token from query parameters or headers
-    const url = new URL(request.url, `http://${request.headers.host}`);
-    const token = url.searchParams.get('token') || 
-                  (request.headers.authorization && request.headers.authorization.startsWith('Bearer ') 
-                    ? request.headers.authorization.substring(7) 
-                    : null);
-    
-    if (token) {
-      // Authenticate user immediately upon connection
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        ws.userId = decoded.id;
-        clients.set(ws.userId, ws);
-        console.log(`User ${decoded.id} authenticated on connection`);
-      } catch (err) {
-        console.error("WebSocket authentication error:", err);
-        ws.close();
+    try {
+      const url = new URL(request.url, `http://${request.headers.host}`);
+      const tokenFromQuery = url.searchParams.get("token");
+      const tokenFromHeader = parseBearerToken(request.headers.authorization);
+      const token = tokenFromQuery || tokenFromHeader;
+
+      if (!token) {
+        ws.close(1008, "Authentication token required");
         return;
       }
+
+      authenticateSocket(ws, token);
+    } catch (err) {
+      console.error("WebSocket authentication error:", err);
+      ws.close(1008, "Invalid authentication token");
+      return;
     }
-    
-    // Handle incoming messages from clients
-    ws.on("message", async (data) => {
+
+    ws.on("message", (rawData) => {
       try {
-        const message = JSON.parse(data);
-        
-        if (message.type === 'auth' && message.token) {
-          // Authenticate user
+        const payload = JSON.parse(rawData.toString());
+
+        // Support token refresh without enabling client-side message persistence.
+        if (payload.type === "auth" && payload.token) {
           try {
-            const decoded = jwt.verify(message.token, process.env.JWT_SECRET);
-            ws.userId = decoded.id;
-            clients.set(ws.userId, ws);
-            console.log(`User ${decoded.id} authenticated`);
+            authenticateSocket(ws, payload.token);
           } catch (err) {
-            console.error("WebSocket authentication error:", err);
-            ws.close();
+            console.error("WebSocket re-authentication error:", err);
+            ws.close(1008, "Invalid authentication token");
           }
-        } else if (message.type === 'message' && ws.userId) {
-          // Handle chat message
-          const { content, recipientId } = message.data;
-          
-          // Ensure we have a proper recipient ID (not an object)
-          let properRecipientId = recipientId;
-          if (typeof recipientId === 'object' && recipientId !== null) {
-            // If recipientId is an object, try to extract the _id property
-            properRecipientId = recipientId._id ? recipientId._id.toString() : recipientId.id ? recipientId.id.toString() : null;
-          } else if (typeof recipientId === 'string' && recipientId.match(/ObjectId\(/)) {
-            // If it's a string representation of an ObjectId, extract the ID
-            const match = recipientId.match(/'([^']+)'/);
-            if (match && match[1]) {
-              properRecipientId = match[1];
-            }
-          }
-          
-          // Validate recipientId
-          if (!properRecipientId) {
-            console.error("Invalid recipientId:", recipientId);
-            return;
-          }
-          
-          // Add sender info
-          message.data.senderId = ws.userId;
-          message.data.timestamp = new Date().toISOString();
-          
-          // Save message to database with initial status
-          let dbMessage;
-          try {
-            dbMessage = new Message({
-              sender: ws.userId,
-              recipient: properRecipientId, // Use the proper recipient ID
-              content: content,
-              status: 'sent'  // Default status
-            });
-            await dbMessage.save();
-            
-            // Populate sender info
-            await dbMessage.populate('sender', 'name');
-            message.data = { 
-              ...message.data, 
-              ...dbMessage.toObject(),
-              senderId: dbMessage.sender._id.toString(), // Convert ObjectId to string
-              status: dbMessage.status
-            };
-          } catch (err) {
-            console.error("Error saving message to database:", err);
-            // Continue anyway to allow message delivery
-          }
-          
-          // Generate message ID if not present (for updates)
-          if (dbMessage && !message.data._id && dbMessage._id) {
-            message.data._id = dbMessage._id.toString();
-          }
-          
-          // Find recipient WebSocket
-          const recipientWs = clients.get(properRecipientId);
-          
-          // Send to recipient if online
-          if (recipientWs && recipientWs.readyState === recipientWs.OPEN) {
-            recipientWs.send(JSON.stringify(message));
-            
-            // Update message status to delivered if we have a DB reference
-            if (dbMessage) {
-              try {
-                await Message.findByIdAndUpdate(dbMessage._id, { 
-                  status: 'delivered',
-                  deliveredAt: new Date()
-                });
-                
-                // Update our local message data
-                message.data.status = 'delivered';
-                message.data.deliveredAt = new Date().toISOString();
-              } catch (err) {
-                console.error("Error updating message status to delivered:", err);
-              }
-            }
-          }
-          
-          // Always send back to sender for confirmation
-          if (ws.readyState === ws.OPEN) {
-            // Make sure we're sending the correct format
-            const responseMessage = {
-              type: 'message',
-              data: message.data
-            };
-            ws.send(JSON.stringify(responseMessage));
-          }
-          
-          console.log(`Message from ${ws.userId} to ${properRecipientId}: ${content}`);
-        } else if (message.type === 'messageRequest' && ws.userId) {
-          // Handle message request
-          const { content, recipientId } = message.data;
-          
-          // Ensure we have a proper recipient ID (not an object)
-          let properRecipientId = recipientId;
-          if (typeof recipientId === 'object' && recipientId !== null) {
-            // If recipientId is an object, try to extract the _id property
-            properRecipientId = recipientId._id ? recipientId._id.toString() : recipientId.id ? recipientId.id.toString() : null;
-          } else if (typeof recipientId === 'string' && recipientId.match(/ObjectId\(/)) {
-            // If it's a string representation of an ObjectId, extract the ID
-            const match = recipientId.match(/'([^']+)'/);
-            if (match && match[1]) {
-              properRecipientId = match[1];
-            }
-          }
-          
-          // Validate recipientId
-          if (!properRecipientId) {
-            console.error("Invalid recipientId for message request:", recipientId);
-            return;
-          }
-          
-          // Add sender info
-          message.data.senderId = ws.userId;
-          message.data.timestamp = new Date().toISOString();
-          
-          // Save message request to database
-          try {
-            const dbRequest = new MessageRequest({
-              from: ws.userId,
-              to: properRecipientId,
-              content: content
-            });
-            await dbRequest.save();
-            
-            // Populate sender info
-            const sender = await User.findById(ws.userId, 'name');
-            message.data.senderName = sender.name;
-            message.data = { ...message.data, ...dbRequest.toObject() };
-          } catch (err) {
-            console.error("Error saving message request to database:", err);
-          }
-          
-          // Find recipient WebSocket
-          const recipientWs = clients.get(properRecipientId);
-          
-          // Send request notification to recipient if online
-          if (recipientWs && recipientWs.readyState === recipientWs.OPEN) {
-            recipientWs.send(JSON.stringify({
-              type: 'messageRequest',
-              data: message.data
-            }));
-          }
-          
-          // Send confirmation back to sender
-          if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'messageRequestConfirmation',
-              data: message.data
-            }));
-          }
-          
-          console.log(`Message request from ${ws.userId} to ${properRecipientId}: ${content}`);
-        } else if (message.type === 'requestAccepted' && ws.userId) {
-          // Handle request acceptance
-          const { requestId, fromUserId } = message.data;
-          
-          // Ensure we have a proper fromUserId
-          let properFromUserId = fromUserId;
-          if (typeof fromUserId === 'object' && fromUserId !== null) {
-            // If fromUserId is an object, try to extract the _id property
-            properFromUserId = fromUserId._id ? fromUserId._id.toString() : fromUserId.id ? fromUserId.id.toString() : null;
-          } else if (typeof fromUserId === 'string' && fromUserId.match(/ObjectId\(/)) {
-            // If it's a string representation of an ObjectId, extract the ID
-            const match = fromUserId.match(/'([^']+)'/);
-            if (match && match[1]) {
-              properFromUserId = match[1];
-            }
-          }
-          
-          try {
-            // Update request status in database
-            const request = await MessageRequest.findById(requestId);
-            if (request && request.to.toString() === ws.userId) {
-              request.status = 'accepted';
-              await request.save();
-              
-              // Create connection if it doesn't exist
-              const existingConnection = await UserConnection.findOne({
-                $or: [
-                  { user1: request.from, user2: request.to },
-                  { user1: request.to, user2: request.from }
-                ]
-              });
-              
-              if (!existingConnection) {
-                const connection = new UserConnection({
-                  user1: request.from,
-                  user2: request.to
-                });
-                await connection.save();
-              }
-            }
-          } catch (err) {
-            console.error("Error updating request in database:", err);
-          }
-          
-          // Notify the requester
-          const requesterWs = clients.get(properFromUserId);
-          if (requesterWs && requesterWs.readyState === requesterWs.OPEN) {
-            requesterWs.send(JSON.stringify({
-              type: 'requestAccepted',
-              data: { requestId }
-            }));
-          }
-          
-          // Send confirmation back to accepter
-          if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'requestAcceptedConfirmation',
-              data: { requestId }
-            }));
-          }
+        } else if (payload.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong", ts: Date.now() }));
         }
       } catch (err) {
-        console.error("Error handling WebSocket message:", err);
+        console.error("Error parsing WebSocket payload:", err);
       }
     });
 
     ws.on("close", () => {
-      console.log("Client disconnected");
-      // Remove client from map
       if (ws.userId) {
         clients.delete(ws.userId);
       }
     });
-    
-    ws.on("error", (error) => {
-      console.error("WebSocket error:", error);
+
+    ws.on("error", (err) => {
+      console.error("WebSocket error:", err);
       if (ws.userId) {
         clients.delete(ws.userId);
       }
@@ -296,26 +74,38 @@ export const initializeWebSocketServer = (server) => {
   });
 };
 
-/**
- * Broadcast sponsorship update to connected clients
- * @param {Object} payload - Event payload
- */
+export const sendToUser = (userId, payload) => {
+  const normalizedUserId = userId ? String(userId) : null;
+  if (!normalizedUserId) return false;
+
+  const client = clients.get(normalizedUserId);
+  if (!client || client.readyState !== WebSocket.OPEN) return false;
+
+  client.send(JSON.stringify(payload));
+  return true;
+};
+
 export const publishSponsorshipUpdate = ({ event, data, recipient = null }) => {
   if (!wss) {
     console.warn("WebSocket server not initialized");
     return;
   }
 
-  const message = JSON.stringify({ event, data, recipient });
+  const payload = { event, data, recipient };
 
+  if (recipient) {
+    sendToUser(recipient, payload);
+    return;
+  }
+
+  const message = JSON.stringify(payload);
   wss.clients.forEach((client) => {
-    if (client.readyState === client.OPEN && (!recipient || client.userId === recipient)) {
+    if (client.readyState === WebSocket.OPEN) {
       client.send(message);
     }
   });
 };
 
-// Attach userId to WebSocket connections (you can integrate this in your auth middleware)
 export const setWebSocketUserId = (ws, userId) => {
-  ws.userId = userId;
+  ws.userId = String(userId);
 };

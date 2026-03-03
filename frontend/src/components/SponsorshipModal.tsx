@@ -357,10 +357,22 @@ const SponsorshipModal: React.FC<SponsorshipModalProps> = ({
           <Link 
             to={`/messages?recipient=${
               userRole === "brand" 
-                ? (typeof sponsorship.influencer === 'object' ? sponsorship.influencer?._id : '') 
+                ? (typeof sponsorship.influencer === 'object' && sponsorship.influencer.user
+                    ? (typeof sponsorship.influencer.user === 'object'
+                        ? sponsorship.influencer.user?._id
+                        : sponsorship.influencer.user)
+                    : '')
                 : (typeof sponsorship.brand === 'object' && sponsorship.brand.user 
                     ? (typeof sponsorship.brand.user === 'object' ? sponsorship.brand.user?._id : '') 
                     : '')
+            }&name=${
+              userRole === "brand"
+                ? (typeof sponsorship.influencer === "object"
+                    ? (sponsorship.influencer.user && typeof sponsorship.influencer.user === "object"
+                        ? sponsorship.influencer.user.name
+                        : sponsorship.influencer.handle)
+                    : "")
+                : (typeof sponsorship.brand === "object" ? sponsorship.brand.companyName : "")
             }`}
             className="px-4 py-2 text-white bg-primary rounded-lg hover:bg-primary-dark transition"
           >
