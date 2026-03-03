@@ -2,14 +2,45 @@ services:
   - type: web
     name: influencerhub-backend
     runtime: node
+    rootDir: Backend
     plan: free
     region: ohio
-    buildCommand: npm install
+    branch: main
+    autoDeployTrigger: commit
+    buildCommand: npm ci
     startCommand: npm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
-    domains:
-      - influncerhub.onrender.com
+      - key: CLIENT_ORIGIN
+        value: https://influncerhub.vercel.app
+      - key: CORS_ORIGINS
+        value: https://influncerhub.vercel.app,http://localhost:3000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: MONGO_URI
+        fromService:
+          type: pserv
+          name: influencerhub-mongo
+          property: hostport
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+  - type: pserv
+    name: influencerhub-mongo
+    runtime: image
+    plan: starter
+    region: ohio
+    image:
+      url: mongo:7
+    disk:
+      name: mongo-data
+      mountPath: /data/db
+      sizeGB: 10

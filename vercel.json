@@ -31,6 +31,7 @@
   "outputDirectory": "frontend/build",
   "env": {
     "CI": "false",
-    "REACT_APP_API_URL": "https://influncerhub.onrender.com"
+    "REACT_APP_API_URL": "https://influncerhub.onrender.com",
+    "VITE_API_URL": "https://influncerhub.onrender.com"
   }
 }

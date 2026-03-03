@@ -21,10 +21,11 @@ class WebSocketService {
     // Determine WebSocket URL based on current environment
     let wsUrl: string;
     
-    if (process.env.REACT_APP_API_URL) {
+    const apiBaseUrl = process.env.REACT_APP_API_URL || process.env.VITE_API_URL;
+
+    if (apiBaseUrl) {
       // Use the API URL from environment variables
-      const apiUrl = process.env.REACT_APP_API_URL;
-      const url = new URL(apiUrl);
+      const url = new URL(apiBaseUrl);
       
       // Change http to ws and https to wss
       if (url.protocol === 'https:') {

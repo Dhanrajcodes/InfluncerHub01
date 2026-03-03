@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
 
 // Load environment variables
 dotenv.config();
@@ -36,13 +37,48 @@ import './models/UserConnection.js';
 
 const app = express();
 const server = createServer(app);
+const isProduction = process.env.NODE_ENV === 'production';
+const PORT = Number(process.env.PORT || 5000);
+
+const getAllowedOrigins = () => {
+  const configuredOrigins = (process.env.CLIENT_ORIGIN || process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const defaultOrigins = [
+    'https://influncerhub.vercel.app',
+    'http://localhost:3000',
+  ];
+
+  return new Set([...defaultOrigins, ...configuredOrigins]);
+};
+
+const allowedOrigins = getAllowedOrigins();
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow non-browser clients (health checks, curl) with no origin header.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('CORS origin not allowed'));
+  },
+  credentials: true,
+};
 
 // Initialize WebSocket server
 initializeWebSocketServer(server);
 
 // Middleware
-app.use(cors());
+app.set('trust proxy', 1);
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isProduction ? 200 : 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -56,6 +92,14 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/earnings', earningsRoutes);
 
 // Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });
 });
@@ -63,21 +107,74 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+const getMongoUri = () => {
+  const rawValue = (process.env.MONGO_URI || '').trim();
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => {
-  console.log('Connected to MongoDB');
-  server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  if (!rawValue) {
+    return 'mongodb://127.0.0.1:27017/influencerhub';
+  }
+
+  // If Render injects host:port, normalize it into a proper mongodb URI.
+  if (!rawValue.startsWith('mongodb://') && !rawValue.startsWith('mongodb+srv://')) {
+    return `mongodb://${rawValue}/influencerhub`;
+  }
+
+  return rawValue;
+};
+
+let shuttingDown = false;
+
+const gracefulShutdown = async (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Received ${signal}. Starting graceful shutdown...`);
+
+  server.close(async () => {
+    try {
+      await mongoose.connection.close();
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    } catch (error) {
+      console.error('Error during shutdown:', error);
+      process.exit(1);
+    }
   });
-})
-.catch((err) => {
-  console.error('Database connection error:', err);
+
+  setTimeout(() => {
+    console.error('Graceful shutdown timed out; forcing exit');
+    process.exit(1);
+  }, 10000).unref();
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+mongoose.connection.on('connected', () => {
+  console.log('MongoDB connected');
 });
+
+mongoose.connection.on('error', (error) => {
+  console.error('MongoDB connection error:', error);
+});
+
+mongoose.connection.on('disconnected', () => {
+  if (!shuttingDown) {
+    console.warn('MongoDB disconnected');
+  }
+});
+
+const startServer = async () => {
+  try {
+    await mongoose.connect(getMongoUri());
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
 
 export default app;

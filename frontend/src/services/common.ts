@@ -24,9 +24,9 @@ class TimeoutError extends Error {
 
 // Function to get API base URL with better error handling
 export const getApiBaseUrl = (): string => {
-  const url = process.env.REACT_APP_API_URL;
+  const url = process.env.REACT_APP_API_URL || process.env.VITE_API_URL;
   if (!url) {
-    console.warn('REACT_APP_API_URL not set, using localhost fallback');
+    console.warn('REACT_APP_API_URL/VITE_API_URL not set, using localhost fallback');
     return 'http://localhost:5000';
   }
   
@@ -35,7 +35,7 @@ export const getApiBaseUrl = (): string => {
     new URL(url);
     return url;
   } catch (e) {
-    console.error('Invalid REACT_APP_API_URL format:', url);
+    console.error('Invalid API URL format:', url);
     console.warn('Using localhost fallback');
     return 'http://localhost:5000';
   }

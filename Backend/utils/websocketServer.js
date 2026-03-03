@@ -4,6 +4,22 @@ import jwt from "jsonwebtoken";
 let wss;
 const clients = new Map();
 
+const getAllowedOrigins = () => {
+  const configuredOrigins = (process.env.CLIENT_ORIGIN || process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const defaultOrigins = [
+    "https://influncerhub.vercel.app",
+    "http://localhost:3000",
+  ];
+
+  return new Set([...defaultOrigins, ...configuredOrigins]);
+};
+
+const allowedOrigins = getAllowedOrigins();
+
 const parseBearerToken = (headerValue) => {
   if (!headerValue || typeof headerValue !== "string") return null;
   if (!headerValue.startsWith("Bearer ")) return null;
@@ -22,6 +38,12 @@ export const initializeWebSocketServer = (server) => {
 
   wss.on("connection", (ws, request) => {
     try {
+      const origin = request.headers.origin;
+      if (origin && !allowedOrigins.has(origin)) {
+        ws.close(1008, "Origin not allowed");
+        return;
+      }
+
       const url = new URL(request.url, `http://${request.headers.host}`);
       const tokenFromQuery = url.searchParams.get("token");
       const tokenFromHeader = parseBearerToken(request.headers.authorization);
