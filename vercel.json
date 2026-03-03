@@ -17,7 +17,7 @@
   "github": {
     "silent": true
   },
-  "installCommand": "npm install --legacy-peer-deps",
+  "installCommand": "npm install --prefix frontend --legacy-peer-deps",
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/build",
   "env": {
